@@ -1,0 +1,28 @@
+# Runtime dependencies for the shoplift offline prototype.
+#
+# PaddleDetection 2.9 is vendored in:
+#   src/PaddleDetection-release-2.9
+# Install it with `pip install -e src/PaddleDetection-release-2.9` after the
+# base dependencies are installed, or expose that path via PYTHONPATH.
+#
+# For GPU inference, replace paddlepaddle with the paddlepaddle-gpu wheel that
+# matches the target CUDA runtime, then keep the remaining constraints.
+paddlepaddle>=2.6.0,<3.0.0
+numpy>=1.23,<2.0
+opencv-python<=4.6.0
+PyYAML>=6.0,<7.0
+Pillow>=9.5,<11.0
+tqdm>=4.65,<5.0
+packaging>=23.0,<25.0
+
+# PaddleDetection runtime parity.
+shapely>=2.0,<3.0
+scipy>=1.9,<1.12
+terminaltables>=3.1,<4.0
+typeguard>=2.13,<5.0
+visualdl>=2.5,<3.0
+Cython>=0.29,<3.1
+pycocotools==2.0.8
+scikit-learn>=1.1,<1.4
+lapx>=0.5,<0.6
+motmetrics>=1.4,<2.0

@@ -1,0 +1,11 @@
+-r requirements.txt
+
+# Tests and local quality gates. These must not require model weights.
+pytest>=7.4,<9.0
+pytest-cov>=4.1,<6.0
+jsonschema>=4.21,<5.0
+
+# Formatting, linting, and typing.
+ruff>=0.5,<1.0
+mypy>=1.8,<2.0
+types-PyYAML>=6.0,<7.0

@@ -1,0 +1,37 @@
+camera_id: demo-camera-001
+
+input:
+  type: video
+  path: ./data/samples/demo.mp4
+
+runtime:
+  device: cpu
+  frame_stride: 1
+  max_frames: null
+
+modules:
+  person_gate:
+    enabled: true
+    min_score: 0.45
+    skip_when_empty: true
+  pose_hand:
+    enabled: true
+    min_keypoint_score: 0.2
+  item_container:
+    enabled: true
+    min_score: 0.35
+    classes:
+      - item
+      - product
+      - bag
+      - backpack
+      - handbag
+      - basket
+      - cart
+      - stroller
+      - helmet
+
+outputs:
+  frame_jsonl: ./outputs/shoplift/frame_results.jsonl
+  event_json: ./outputs/shoplift/events.json
+  debug_visualization_dir: ./outputs/shoplift/debug

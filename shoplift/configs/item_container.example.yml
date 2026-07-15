@@ -1,0 +1,28 @@
+model:
+  task: item_container_detection
+  weights_dir: ./models/shoplift/item_container
+  device: cpu
+
+classes:
+  item:
+    aliases: [product]
+    normal_container: false
+  bag:
+    aliases: [backpack, handbag]
+    normal_container: false
+  basket:
+    aliases: [cart]
+    normal_container: true
+  stroller:
+    aliases: []
+    normal_container: false
+  helmet:
+    aliases: []
+    normal_container: false
+  clothing_region:
+    aliases: [pocket_region]
+    normal_container: false
+
+thresholds:
+  min_score: 0.35
+  nms_iou: 0.5

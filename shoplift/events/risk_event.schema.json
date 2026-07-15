@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/shoplift/risk_event.schema.json",
+  "title": "Shoplift RiskEvent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "camera_id",
+    "timestamp_ms",
+    "person_track_id",
+    "event_type",
+    "risk_score",
+    "risk_level",
+    "reason_tags",
+    "evidence"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "shoplift.risk_event.v1"
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "camera_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timestamp_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "start_timestamp_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "end_timestamp_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "person_track_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event_type": {
+      "type": "string",
+      "minLength": 1,
+      "examples": [
+        "bag_concealment",
+        "clothing_concealment",
+        "special_container_concealment",
+        "bulk_pickup_to_bag",
+        "near_body_suspicious"
+      ]
+    },
+    "risk_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "risk_level": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "confidence": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "reason_tags": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/relationEvidence"
+      }
+    },
+    "clip_uri": {
+      "type": ["string", "null"]
+    },
+    "debug_visualization_uri": {
+      "type": ["string", "null"]
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "bbox": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "number"
+      }
+    },
+    "relationEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relation_type",
+        "frame_id",
+        "timestamp_ms",
+        "score",
+        "reason_tags"
+      ],
+      "properties": {
+        "relation_type": {
+          "type": "string",
+          "minLength": 1,
+          "examples": [
+            "hand_item_contact",
+            "item_enter_container",
+            "item_disappeared_after_entry"
+          ]
+        },
+        "frame_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timestamp_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "reason_tags": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "person_track_id": {
+          "type": ["string", "null"]
+        },
+        "hand_track_id": {
+          "type": ["string", "null"]
+        },
+        "item_track_id": {
+          "type": ["string", "null"]
+        },
+        "container_track_id": {
+          "type": ["string", "null"]
+        },
+        "evidence_boxes": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/bbox"
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}

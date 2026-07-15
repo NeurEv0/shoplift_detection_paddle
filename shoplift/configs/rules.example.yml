@@ -1,0 +1,28 @@
+risk_levels:
+  low:
+    min_score: 0.0
+  medium:
+    min_score: 0.45
+  high:
+    min_score: 0.75
+
+temporal:
+  min_contact_frames: 3
+  min_entry_frames: 3
+  high_risk_min_evidence_frames: 8
+  disappeared_after_entry_frames: 10
+
+normal_containers:
+  whitelist:
+    - basket
+    - cart
+    - checkout_bag
+  high_risk_downgrade: true
+
+visibility:
+  low_confidence_score: 0.35
+  low_visibility_risk_cap: medium
+
+event_constraints:
+  high_risk_min_reason_tags: 2
+  single_frame_contact_risk_cap: low
