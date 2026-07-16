@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from shoplift.cli.offline_analyze import (
+    BackendOptions,
     ModuleOptions,
     OfflineConfig,
     OutputPaths,
@@ -68,6 +69,7 @@ class OfflineAnalyzeTest(unittest.TestCase):
                 input_type=None,
                 runtime=RuntimeOptions(max_frames=1, save_debug_visualization=False),
                 modules=ModuleOptions(item_container_classes=("product", "handbag")),
+                backend=BackendOptions(),
                 outputs=OutputPaths(
                     root=output_dir,
                     frame_jsonl=output_dir / "frame_results.jsonl",
@@ -111,6 +113,7 @@ class OfflineAnalyzeTest(unittest.TestCase):
                 input_type=None,
                 runtime=RuntimeOptions(max_frames=2, save_debug_visualization=False),
                 modules=ModuleOptions(),
+                backend=BackendOptions(),
                 outputs=OutputPaths(
                     root=output_dir,
                     frame_jsonl=output_dir / "frame_results.jsonl",

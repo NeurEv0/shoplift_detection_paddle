@@ -9,6 +9,7 @@ __pycache__/
 venv/
 
 shoplift/configs/env.local.yml
+shoplift/configs/pipeline.local.yml
 data/
 models/
 outputs/
@@ -20,3 +21,5 @@ outputs/
 *.pdmodel
 *.pdiparams
 *.onnx
+
+datasets/

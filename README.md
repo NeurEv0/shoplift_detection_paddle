@@ -63,6 +63,36 @@ python -m shoplift.cli.offline_analyze --config shoplift/configs/pipeline.exampl
 
 当前 P0 CLI 使用 model-free 后端跑通输入、门控、手部 ROI/商品容器结果承载、JSONL 写出和 debug 可视化。真实 PaddleDetection 推理结果可通过后续后端接入同一逐帧结构。
 
+真实 PaddleDetection/PP-Human 后端已接入为可选 backend。先在 `shoplift/configs/pipeline.example.yml` 的 `backend` 段配置本地导出的 PP-Human MOT、关键点和可选商品/容器检测模型目录，再执行：
+
+```powershell
+python -m shoplift.cli.offline_analyze --config shoplift/configs/pipeline.example.yml --backend paddledet_pphuman --input data/samples/demo.mp4 --output outputs/shoplift_pphuman
+```
+
+如果只想检查参数和路径入口，不加载 Paddle 或模型：
+
+```powershell
+python -m shoplift.cli.offline_analyze --config shoplift/configs/pipeline.example.yml --backend paddledet_pphuman --input data/samples/demo.mp4 --dry-run
+```
+
+`events.json` 现在由 P1 事件引擎生成；没有商品/容器检测权重时，后端只会输出人员跟踪和可选手部 ROI，不会伪造藏匿事件。
+
+## DCSASS 初版评测
+
+本地 `datasets/DCSASS_Shoplifting` 可通过 clip-level 评测入口批量验证：
+
+```powershell
+python -m shoplift.eval.dcsass_eval --config shoplift/configs/pipeline.example.yml --dataset-root datasets/DCSASS_Shoplifting --output outputs/dcsass_eval --backend paddledet_pphuman --no-debug
+```
+
+建议先跑一个带可视化的小批量 smoke eval，输出集中保留在清晰路径下：
+
+```powershell
+python -m shoplift.eval.dcsass_eval --config shoplift/configs/pipeline.local.yml --dataset-root datasets/DCSASS_Shoplifting --output outputs/public_eval/dcsass_smoke --backend paddledet_pphuman --max-clips-per-label 2 --max-frames 10 --frame-stride 3 --continue-on-error
+```
+
+输出包括 `metrics.json`、`predictions.csv` 和每个 clip 的逐帧结果/事件文件；启用 debug 时，`predictions.csv` 会记录对应的 `debug_visualization.mp4` 路径。DCSASS 只有 clip 级二分类标签，因此该评测衡量端到端异常信号，不能单独证明手-商品-容器关系是否定位正确。
+
 ## 数据契约
 
 - 核心数据结构：`shoplift/core/types.py`

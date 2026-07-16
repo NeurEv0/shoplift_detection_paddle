@@ -9,6 +9,32 @@ runtime:
   frame_stride: 1
   max_frames: null
 
+backend:
+  # Use "paddledet_pphuman" after configuring local exported model dirs below.
+  # The default keeps CPU-only tests and dry runs independent from model weights.
+  type: model_free
+  paddledetection_root: ./src/PaddleDetection-release-2.9
+  pphuman_config: ./src/PaddleDetection-release-2.9/deploy/pipeline/config/infer_cfg_pphuman.yml
+  device: cpu
+  run_mode: paddle
+  mot:
+    enabled: true
+    model_dir: ./models/paddledetection/person_mot
+    tracker_config: ./src/PaddleDetection-release-2.9/deploy/pipeline/config/tracker_config.yml
+    threshold: 0.5
+    batch_size: 1
+    skip_frame_num: -1
+  keypoint:
+    enabled: false
+    model_dir: ./models/paddledetection/person_keypoint
+    threshold: 0.2
+    batch_size: 8
+  item_container:
+    enabled: false
+    model_dir: ./models/shoplift/item_container
+    threshold: 0.35
+    batch_size: 1
+
 modules:
   person_gate:
     enabled: true

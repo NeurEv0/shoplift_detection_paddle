@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping, Protocol, Sequence
 
 from shoplift.core.types import DetectionBox, FrameMeta, HandRegion, Tracklet
+from shoplift.events.event_engine import ShopliftingEventEngine
+from shoplift.events.event_schema import risk_event_to_payload
+from shoplift.tracking.association import AssociationFrame
 from shoplift.vision import (
     ItemContainerDetectionAdapter,
     ItemContainerResult,
@@ -43,6 +46,12 @@ class ModuleOptions:
 
 
 @dataclass(frozen=True)
+class BackendOptions:
+    backend_type: str = "model_free"
+    options: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
 class OutputPaths:
     root: Path
     frame_jsonl: Path
@@ -58,6 +67,7 @@ class OfflineConfig:
     input_type: str | None
     runtime: RuntimeOptions
     modules: ModuleOptions
+    backend: BackendOptions
     outputs: OutputPaths
 
 
@@ -89,6 +99,14 @@ class ModelFreeVisionBackend:
 
     def analyze(self, packet: FramePacket) -> VisionBackendResult:
         return VisionBackendResult(metadata={"backend": "model_free"})
+
+
+@dataclass(frozen=True)
+class FrameAnalysis:
+    payload: dict[str, Any]
+    person_tracks: tuple[Tracklet, ...]
+    hand_regions: tuple[HandRegion, ...]
+    item_container: ItemContainerResult
 
 
 @dataclass(frozen=True)
@@ -124,6 +142,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--frame-stride", type=int, default=None, help="Process one frame every N source frames.")
     parser.add_argument("--max-frames", type=int, default=None, help="Stop after N processed frames.")
     parser.add_argument("--no-debug", action="store_true", help="Do not write debug visualization artifacts.")
+    parser.add_argument(
+        "--backend",
+        choices=("model_free", "paddledet_pphuman"),
+        default=None,
+        help="Override the configured vision backend.",
+    )
     return parser
 
 
@@ -186,6 +210,13 @@ def load_offline_config(args: argparse.Namespace) -> OfflineConfig:
         else None,
     )
 
+    backend_section = _mapping_at(config_data, "backend")
+    backend_type = args.backend or str(backend_section.get("type", "model_free"))
+    backend = BackendOptions(
+        backend_type=backend_type,
+        options={key: value for key, value in backend_section.items() if key != "type"},
+    )
+
     outputs_section = _mapping_at(config_data, "outputs")
     outputs = output_paths_from_config(outputs_section, output_root, force_output_root=args.output is not None)
 
@@ -195,6 +226,7 @@ def load_offline_config(args: argparse.Namespace) -> OfflineConfig:
         input_type=input_type,
         runtime=runtime,
         modules=modules,
+        backend=backend,
         outputs=outputs,
     )
 
@@ -210,11 +242,13 @@ def run_offline_analysis(
         raise OSError(f"input path does not exist: {input_path}")
 
     input_type = detect_input_type(input_path, config.input_type)
-    backend = backend or ModelFreeVisionBackend()
+    backend = backend or create_vision_backend(config.backend)
     person_gate = PersonGate(
         min_score=config.modules.person_gate_min_score,
         skip_when_empty=config.modules.person_gate_skip_when_empty,
     )
+    event_engine = ShopliftingEventEngine()
+    emitted_events = []
     item_container_adapter = ItemContainerDetectionAdapter(
         min_score=config.modules.item_container_min_score,
         allowed_categories=frozenset(config.modules.item_container_classes)
@@ -243,13 +277,37 @@ def run_offline_analysis(
                 frame_stride=config.runtime.frame_stride,
                 max_frames=config.runtime.max_frames,
             ):
-                frame_result = analyze_packet(
+                analysis = analyze_packet_components(
                     packet,
                     backend=backend,
                     person_gate=person_gate,
                     item_container_adapter=item_container_adapter,
                     modules=config.modules,
                 )
+                frame_result = analysis.payload
+                event_result = event_engine.process_frame(
+                    AssociationFrame(
+                        frame_id=packet.frame.frame_id,
+                        timestamp_ms=packet.frame.timestamp_ms,
+                        camera_id=packet.frame.camera_id,
+                        person_tracks=analysis.person_tracks,
+                        hand_regions=analysis.hand_regions,
+                        items=analysis.item_container.items,
+                        containers=analysis.item_container.containers,
+                        extension_regions=analysis.item_container.extension_regions,
+                        metadata={
+                            "source_uri": packet.source_uri,
+                            "input_type": packet.input_type,
+                        },
+                    )
+                )
+                emitted_events.extend(event_result.events)
+                frame_result["metadata"]["event_engine"] = {
+                    "relation_count": len(event_result.relations),
+                    "state_count": len(event_result.states),
+                    "event_count": len(event_result.events),
+                    "relation_counts": event_result.metadata.get("relation_counts", {}),
+                }
                 jsonl.write(json.dumps(frame_result, ensure_ascii=False, separators=(",", ":")))
                 jsonl.write("\n")
                 debug_writer.write(packet, frame_result)
@@ -258,7 +316,7 @@ def run_offline_analysis(
         debug_writer.close()
 
     with config.outputs.event_json.open("w", encoding="utf-8") as events_file:
-        json.dump([], events_file, ensure_ascii=False, indent=2)
+        json.dump([risk_event_to_payload(event) for event in emitted_events], events_file, ensure_ascii=False, indent=2)
         events_file.write("\n")
 
     return OfflineAnalysisSummary(
@@ -270,6 +328,19 @@ def run_offline_analysis(
         debug_visualization=debug_writer.artifact_path,
         person_gate_metrics=person_gate.metrics.to_dict(),
     )
+
+
+def create_vision_backend(options: BackendOptions) -> VisionBackend:
+    backend_type = options.backend_type.strip().lower()
+    if backend_type in {"model_free", "none"}:
+        return ModelFreeVisionBackend()
+    if backend_type in {"paddledet_pphuman", "pphuman", "paddledetection"}:
+        from shoplift.backends import PaddleDetPPHumanBackend, PaddleDetPPHumanBackendConfig
+
+        return PaddleDetPPHumanBackend(
+            PaddleDetPPHumanBackendConfig.from_mapping(options.options or {})
+        )
+    raise ValueError(f"unsupported backend.type: {options.backend_type}")
 
 
 def output_paths_from_config(
@@ -303,6 +374,23 @@ def analyze_packet(
     item_container_adapter: ItemContainerDetectionAdapter,
     modules: ModuleOptions,
 ) -> dict[str, Any]:
+    return analyze_packet_components(
+        packet,
+        backend=backend,
+        person_gate=person_gate,
+        item_container_adapter=item_container_adapter,
+        modules=modules,
+    ).payload
+
+
+def analyze_packet_components(
+    packet: FramePacket,
+    *,
+    backend: VisionBackend,
+    person_gate: PersonGate,
+    item_container_adapter: ItemContainerDetectionAdapter,
+    modules: ModuleOptions,
+) -> FrameAnalysis:
     timings: dict[str, float] = {}
     started = time.perf_counter()
     backend_result = backend.analyze(packet)
@@ -339,7 +427,7 @@ def analyze_packet(
     )
     timings["item_container"] = _elapsed_ms(started)
 
-    return {
+    payload = {
         "schema_version": FRAME_RESULT_SCHEMA_VERSION,
         "frame": packet.frame.to_dict(),
         "person_gate": gate_result.to_dict(),
@@ -351,9 +439,16 @@ def analyze_packet(
             "source_frame_id": packet.source_frame_id,
             "source_uri": packet.source_uri,
             "backend": (backend_result.metadata or {}).get("backend"),
+            "backend_metadata": backend_result.metadata or {},
             "timings_ms": timings,
         },
     }
+    return FrameAnalysis(
+        payload=payload,
+        person_tracks=backend_result.person_tracks,
+        hand_regions=tuple(hand_regions),
+        item_container=item_container_result,
+    )
 
 
 def iter_frames(
@@ -574,6 +669,7 @@ def dry_run_payload(config: OfflineConfig) -> dict[str, Any]:
             "frame_stride": config.runtime.frame_stride,
             "max_frames": config.runtime.max_frames,
             "save_debug_visualization": config.runtime.save_debug_visualization,
+            "backend": config.backend.backend_type,
         },
         "outputs": {
             "root": str(config.outputs.root),
