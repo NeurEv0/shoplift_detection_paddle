@@ -100,6 +100,9 @@ JSONL output, empty event output, and debug visualization generation.
 - Schema: `shoplift/events/risk_event.schema.json`
 - Example: `shoplift/events/examples/risk_event.example.json`
 - Helper module: `shoplift/events/event_schema.py`
+- Event engine: `shoplift/events/event_engine.py`
+- Risk scoring: `shoplift/rules/risk_score.py`
+- Rule validation: `shoplift/rules/validators.py`
 
 Required `RiskEvent` fields:
 
@@ -118,3 +121,31 @@ Required `RiskEvent` fields:
 
 The schema represents suspicious visual evidence only. It must not be treated as
 an automatic legal or operational determination of theft.
+
+## P1 Event Types
+
+`ShopliftingEventEngine` consumes relation evidence and state-machine snapshots
+to emit the first batch of reviewable event types:
+
+| Event type | Meaning |
+|---|---|
+| `bag_concealment` | Item entered a private bag/container and later disappeared. |
+| `clothing_concealment` | Item entered a clothing or pocket region and later disappeared. |
+| `special_container_concealment` | Item entered a special container such as stroller/helmet and later disappeared. |
+| `bulk_pickup_to_bag` | Multiple item tracks entered the same private container in a short window. |
+| `near_body_suspicious` | Contact plus person-follow/near-body evidence exists, but concealment is not confirmed. |
+
+## P1 Risk Scoring And Validation
+
+`RiskScorer` combines action type weight, container type weight, temporal
+evidence, relation diversity, model confidence, area risk, and normal-shopping
+downgrade into `risk_score` and `risk_level`.
+
+`RiskRuleValidator` normalizes unsafe outputs:
+
+| Rule | Behavior |
+|---|---|
+| High risk needs multiple reason tags | Downgrade high-risk events with insufficient explanation. |
+| Normal basket/cart placement | Cap or downgrade normal-container events and add normal-shopping tags. |
+| Low visibility or severe occlusion | Add `low_visibility` and cap the risk. |
+| Single-frame contact | Cap contact-only events so they cannot become high risk. |

@@ -122,6 +122,7 @@
           "minLength": 1,
           "examples": [
             "hand_item_contact",
+            "item_follow_person",
             "item_enter_container",
             "item_disappeared_after_entry"
           ]

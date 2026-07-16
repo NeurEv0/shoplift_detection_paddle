@@ -104,6 +104,25 @@ class StateMachineTest(unittest.TestCase):
         self.assertEqual(snapshots[-1].state, RESOLVED_OR_DOWNGRADED)
         self.assertEqual(snapshots[-1].suggested_event_type, "normal_container_placement")
 
+    def test_bulk_pickup_tags_suggest_bulk_event(self) -> None:
+        machine = SuspiciousActionStateMachine()
+
+        snapshots = machine.update(
+            (
+                _evidence(
+                    "item_enter_container",
+                    1,
+                    ("entered_private_container", "bulk_pickup"),
+                    container_track_id="bag-1",
+                    metadata={"is_normal_container": False, "container_kind": "private"},
+                ),
+            ),
+            frame_id=1,
+            timestamp_ms=33,
+        )
+
+        self.assertEqual(snapshots[-1].suggested_event_type, "bulk_pickup_to_bag")
+
 
 if __name__ == "__main__":
     unittest.main()

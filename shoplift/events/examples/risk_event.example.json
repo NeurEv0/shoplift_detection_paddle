@@ -12,7 +12,8 @@
   "confidence": 0.76,
   "reason_tags": [
     "hand_item_contact",
-    "item_enter_bag",
+    "entered_private_container",
+    "after_private_container_entry",
     "item_disappeared"
   ],
   "evidence": [
@@ -22,8 +23,9 @@
       "timestamp_ms": 9200,
       "score": 0.71,
       "reason_tags": [
-        "bbox_overlap",
-        "motion_consistency"
+        "hand_item_overlap",
+        "temporal_consistent",
+        "motion_aligned"
       ],
       "person_track_id": "person-7",
       "hand_track_id": "hand-7-right",
@@ -43,8 +45,8 @@
       "timestamp_ms": 12266,
       "score": 0.84,
       "reason_tags": [
-        "item_center_inside_container",
-        "non_normal_container"
+        "entered_private_container",
+        "entry_temporal_consistent"
       ],
       "person_track_id": "person-7",
       "hand_track_id": "hand-7-right",
@@ -55,7 +57,31 @@
         "container": [488.0, 318.0, 578.0, 452.0]
       },
       "metadata": {
+        "container_kind": "private",
         "container_type": "handbag"
+      }
+    },
+    {
+      "relation_type": "item_disappeared_after_entry",
+      "frame_id": 372,
+      "timestamp_ms": 12400,
+      "score": 0.89,
+      "reason_tags": [
+        "item_disappeared",
+        "after_container_entry",
+        "after_private_container_entry"
+      ],
+      "person_track_id": "person-7",
+      "hand_track_id": null,
+      "item_track_id": "item-34",
+      "container_track_id": "bag-7",
+      "evidence_boxes": {
+        "item": [464.0, 352.0, 492.0, 380.0],
+        "container": [488.0, 318.0, 578.0, 452.0]
+      },
+      "metadata": {
+        "missing_frames": 10,
+        "container_kind": "private"
       }
     }
   ],

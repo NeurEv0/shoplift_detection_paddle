@@ -71,6 +71,10 @@ python -m shoplift.cli.offline_analyze --config shoplift/configs/pipeline.exampl
 - 人员门控：`shoplift/vision/person_gate.py`
 - 手部 ROI：`shoplift/vision/pose_hand.py`
 - 商品/容器检测适配：`shoplift/vision/object_container.py`
+- 关系关联：`shoplift/tracking/association.py`
+- 事件引擎：`shoplift/events/event_engine.py`
+- 风险评分：`shoplift/rules/risk_score.py`
+- 规则校验：`shoplift/rules/validators.py`
 - 事件 JSON Schema：`shoplift/events/risk_event.schema.json`
 - 事件示例：`shoplift/events/examples/risk_event.example.json`
 - 契约说明：`shoplift/configs/schema.md`
@@ -87,6 +91,8 @@ PaddleDetection 适配器当前支持三类 P0 输出转换：
 `pose_hand` 模块基于 COCO wrist/elbow 关键点生成左右手 ROI，支持低置信度 wrist 过滤，并将 `HandRegion.person_track_id` 绑定到对应人员轨迹。
 
 `object_container` 模块将 `product/backpack/handbag/cart/pocket_region` 等模型类别归一到 `item/bag/basket/clothing_region` 等粗粒度内部类别，输出商品、容器和扩展区域分组结果。
+
+P1 事件引擎当前支持 `bag_concealment`、`clothing_concealment`、`special_container_concealment`、`bulk_pickup_to_bag` 和 `near_body_suspicious`。风险评分由动作类型、容器类型、连续证据、模型置信度、区域风险和正常购物解释共同决定；规则校验会防止单帧接触、低可见度和购物篮/购物车正常放入被误升为高风险。
 
 ## 参考文档
 

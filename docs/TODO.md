@@ -187,24 +187,24 @@ shoplift/
   - [x] `suspected_concealment`
   - [x] `confirmed_risk_event`
   - [x] `resolved_or_downgraded`
-- [ ] 6. 实现首批事件类型：
-  - [ ] `clothing_concealment`
-  - [ ] `bag_concealment`
-  - [ ] `special_container_concealment`
-  - [ ] `bulk_pickup_to_bag`
-  - [ ] `near_body_suspicious`
-- [ ] 7. 实现风险评分：
-  - [ ] 动作类型权重。
-  - [ ] 容器类型权重。
-  - [ ] 连续帧证据权重。
-  - [ ] 模型置信度权重。
-  - [ ] 区域风险权重。
-  - [ ] 正常购物解释降权。
-- [ ] 8. 实现规则校验：
-  - [ ] 高风险必须具备至少两个以上原因标签。
-  - [ ] 购物篮/购物车正常放入默认不触发高风险。
-  - [ ] 严重遮挡输出需降级并标记 `low_visibility`。
-  - [ ] 单帧接触不得触发高风险。
+- [x] 6. 实现首批事件类型：
+  - [x] `clothing_concealment`
+  - [x] `bag_concealment`
+  - [x] `special_container_concealment`
+  - [x] `bulk_pickup_to_bag`
+  - [x] `near_body_suspicious`
+- [x] 7. 实现风险评分：
+  - [x] 动作类型权重。
+  - [x] 容器类型权重。
+  - [x] 连续帧证据权重。
+  - [x] 模型置信度权重。
+  - [x] 区域风险权重。
+  - [x] 正常购物解释降权。
+- [x] 8. 实现规则校验：
+  - [x] 高风险必须具备至少两个以上原因标签。
+  - [x] 购物篮/购物车正常放入默认不触发高风险。
+  - [x] 严重遮挡输出需降级并标记 `low_visibility`。
+  - [x] 单帧接触不得触发高风险。
 
 ### 3.3 P2：评测、配置与试点准备
 

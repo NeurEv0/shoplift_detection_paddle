@@ -9,16 +9,28 @@ from shoplift.events.event_schema import (
 )
 from shoplift.events.state_machine import (
     ActionStateSnapshot,
+    CONFIRMED_RISK_EVENT,
     EVENT_STATES,
+    ITEM_PICKED,
+    NEAR_BODY_OR_CONTAINER,
+    OBSERVING,
+    RESOLVED_OR_DOWNGRADED,
+    SUSPECTED_CONCEALMENT,
     SuspiciousActionStateMachine,
 )
 
 __all__ = [
     "ActionStateSnapshot",
+    "CONFIRMED_RISK_EVENT",
     "EVENT_STATES",
     "EventEngineResult",
+    "ITEM_PICKED",
+    "NEAR_BODY_OR_CONTAINER",
     "RISK_EVENT_SCHEMA_PATH",
+    "OBSERVING",
+    "RESOLVED_OR_DOWNGRADED",
     "ShopliftingEventEngine",
+    "SUSPECTED_CONCEALMENT",
     "SuspiciousActionStateMachine",
     "assert_valid_risk_event_payload",
     "load_risk_event_schema",

@@ -166,7 +166,15 @@ class SuspiciousActionStateMachine:
                 return RESOLVED_OR_DOWNGRADED
             if "low_visibility" in tags or "possible_occlusion" in tags:
                 return RESOLVED_OR_DOWNGRADED
-            if {"item_disappeared", "after_container_entry"}.issubset(all_tags):
+            has_entry_disappearance = "after_container_entry" in all_tags or bool(
+                {
+                    "after_private_container_entry",
+                    "after_special_container_entry",
+                    "after_clothing_region_entry",
+                }
+                & all_tags
+            )
+            if "item_disappeared" in all_tags and has_entry_disappearance:
                 return CONFIRMED_RISK_EVENT
             return SUSPECTED_CONCEALMENT
 
@@ -175,6 +183,8 @@ class SuspiciousActionStateMachine:
 
 def _suggested_event_type(context: _ActionContext) -> str:
     tags = context.reason_tags
+    if "bulk_pickup_to_bag" in tags or "bulk_pickup" in tags or "bulk_item_count" in tags:
+        return "bulk_pickup_to_bag"
     if "entered_clothing_region" in tags or "after_clothing_region_entry" in tags:
         return "clothing_concealment"
     if "entered_special_container" in tags or "after_special_container_entry" in tags:

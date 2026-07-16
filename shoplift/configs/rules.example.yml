@@ -6,6 +6,34 @@ risk_levels:
   high:
     min_score: 0.75
 
+event_types:
+  supported:
+    - clothing_concealment
+    - bag_concealment
+    - special_container_concealment
+    - bulk_pickup_to_bag
+    - near_body_suspicious
+
+risk_scoring:
+  action_type_weights:
+    clothing_concealment: 0.34
+    bag_concealment: 0.32
+    special_container_concealment: 0.34
+    bulk_pickup_to_bag: 0.38
+    near_body_suspicious: 0.18
+    normal_container_placement: 0.05
+  container_type_weights:
+    private: 0.16
+    clothing: 0.18
+    special: 0.18
+    normal: -0.20
+    unknown: 0.04
+  continuous_evidence_weight: 0.16
+  relation_diversity_weight: 0.08
+  model_confidence_weight: 0.20
+  area_risk_weight: 0.12
+  normal_shopping_downgrade: 0.35
+
 temporal:
   min_contact_frames: 3
   min_entry_frames: 3
@@ -26,3 +54,5 @@ visibility:
 event_constraints:
   high_risk_min_reason_tags: 2
   single_frame_contact_risk_cap: low
+  normal_container_risk_cap: medium
+  low_visibility_risk_cap: medium
