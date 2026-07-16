@@ -64,9 +64,19 @@ python -m shoplift.cli.offline_analyze --config shoplift/configs/pipeline.exampl
 
 - 核心数据结构：`shoplift/core/types.py`
 - 跟踪类型兼容导出：`shoplift/tracking/track_types.py`
+- PaddleDetection 适配器：`shoplift/adapters/paddledet_adapter.py`
+- 人员门控：`shoplift/vision/person_gate.py`
 - 事件 JSON Schema：`shoplift/events/risk_event.schema.json`
 - 事件示例：`shoplift/events/examples/risk_event.example.json`
 - 契约说明：`shoplift/configs/schema.md`
+
+PaddleDetection 适配器当前支持三类 P0 输出转换：
+
+- 普通检测：`[class_id, score, x1, y1, x2, y2]` -> `DetectionBox`
+- PP-Human/MOT：`[track_id, class_id, score, x1, y1, x2, y2]` 或 SDE `online_tlwhs/scores/ids` -> `Tracklet`
+- 关键点：PP-Human `{"keypoint": [keypoints, scores]}` -> `HandRegion`
+
+人员门控当前可从 `DetectionBox`、`Tracklet` 或适配器的帧结果中判断是否有人；无人帧返回 `skipped_heavy_modules=true`，同时累计 `skip_rate` 和 `trigger_rate`。
 
 ## 参考文档
 

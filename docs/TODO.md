@@ -142,11 +142,11 @@ shoplift/
 - [x] 2. 初始化 `shoplift/` Python 包和推荐目录结构。
 - [x] 3. 定义核心数据结构：`FrameMeta`、`DetectionBox`、`Tracklet`、`HandRegion`、`RelationEvidence`、`RiskEvent`。
 - [x] 4. 定义事件 JSON schema 与示例文件。
-- [ ] 5. 实现 PaddleDetection 适配器，将 PP-Human/MOT/检测/关键点输出转换为项目内部结构。
-- [ ] 6. 实现人员检测/跟踪门控：
-  - [ ] 无人画面跳过重模型。
-  - [ ] 有人画面输出 `person_track_id`、人体框和轨迹。
-  - [ ] 记录门控跳过率和触发率。
+- [x] 5. 实现 PaddleDetection 适配器，将 PP-Human/MOT/检测/关键点输出转换为项目内部结构。
+- [x] 6. 实现人员检测/跟踪门控：
+  - [x] 无人画面跳过重模型。
+  - [x] 有人画面输出 `person_track_id`、人体框和轨迹。
+  - [x] 记录门控跳过率和触发率。
 - [ ] 7. 实现人体关键点/手部 ROI 初版：
   - [ ] 基于 wrist/arm 关键点派生左右手区域。
   - [ ] 支持低置信度关键点过滤。
