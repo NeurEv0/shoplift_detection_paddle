@@ -162,31 +162,31 @@ shoplift/
 
 ### 3.2 P1：关系建模与事件引擎
 
-- [ ] 1. 实现手-商品接触关系 `hand_item_contact`：
-  - [ ] 距离阈值。
-  - [ ] bbox/ROI 重叠。
-  - [ ] 连续帧稳定性。
-  - [ ] 手与商品运动方向一致性。
-- [ ] 2. 实现商品跟随人员关系 `item_follow_person`：
-  - [ ] 商品轨迹归属到人员轨迹。
-  - [ ] 处理短时漏检。
-  - [ ] 处理多人靠近时的冲突归属。
-- [ ] 3. 实现商品进入容器关系 `item_enter_container`：
-  - [ ] 包袋/背包/手袋进入判断。
-  - [ ] 购物篮/购物车正常容器判断。
-  - [ ] 婴儿车/头盔等特殊容器判断。
-  - [ ] 衣物/口袋区域进入判断的占位实现。
-- [ ] 4. 实现商品进入后消失关系 `item_disappeared_after_entry`：
-  - [ ] 消失帧数阈值。
-  - [ ] 遮挡与漏检降置信策略。
-  - [ ] 正常容器豁免逻辑。
-- [ ] 5. 实现可疑动作状态机：
-  - [ ] `observing`
-  - [ ] `item_picked`
-  - [ ] `near_body_or_container`
-  - [ ] `suspected_concealment`
-  - [ ] `confirmed_risk_event`
-  - [ ] `resolved_or_downgraded`
+- [x] 1. 实现手-商品接触关系 `hand_item_contact`：
+  - [x] 距离阈值。
+  - [x] bbox/ROI 重叠。
+  - [x] 连续帧稳定性。
+  - [x] 手与商品运动方向一致性。
+- [x] 2. 实现商品跟随人员关系 `item_follow_person`：
+  - [x] 商品轨迹归属到人员轨迹。
+  - [x] 处理短时漏检。
+  - [x] 处理多人靠近时的冲突归属。
+- [x] 3. 实现商品进入容器关系 `item_enter_container`：
+  - [x] 包袋/背包/手袋进入判断。
+  - [x] 购物篮/购物车正常容器判断。
+  - [x] 婴儿车/头盔等特殊容器判断。
+  - [x] 衣物/口袋区域进入判断的占位实现。
+- [x] 4. 实现商品进入后消失关系 `item_disappeared_after_entry`：
+  - [x] 消失帧数阈值。
+  - [x] 遮挡与漏检降置信策略。
+  - [x] 正常容器豁免逻辑。
+- [x] 5. 实现可疑动作状态机：
+  - [x] `observing`
+  - [x] `item_picked`
+  - [x] `near_body_or_container`
+  - [x] `suspected_concealment`
+  - [x] `confirmed_risk_event`
+  - [x] `resolved_or_downgraded`
 - [ ] 6. 实现首批事件类型：
   - [ ] `clothing_concealment`
   - [ ] `bag_concealment`
