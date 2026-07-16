@@ -48,17 +48,20 @@ python -m unittest discover -s shoplift/tests
 
 ## 离线 CLI
 
-P0-9 会补齐真实视频/帧目录分析链路。当前 P0 1-4 阶段可先用 dry-run 验证 CLI 参数和配置入口：
+可以先用 dry-run 验证 CLI 参数和配置入口：
 
 ```powershell
 python -m shoplift.cli.offline_analyze --config shoplift/configs/pipeline.example.yml --input data/samples/demo.mp4 --output outputs/shoplift --dry-run
 ```
 
-完整离线分析目标命令将保持同一入口：
+离线分析支持本地视频或帧目录，输出逐帧 JSONL、空事件文件和调试可视化：
 
 ```powershell
 python -m shoplift.cli.offline_analyze --config shoplift/configs/pipeline.example.yml --input data/samples/demo.mp4 --output outputs/shoplift
+python -m shoplift.cli.offline_analyze --config shoplift/configs/pipeline.example.yml --input data/samples/frames --output outputs/shoplift
 ```
+
+当前 P0 CLI 使用 model-free 后端跑通输入、门控、手部 ROI/商品容器结果承载、JSONL 写出和 debug 可视化。真实 PaddleDetection 推理结果可通过后续后端接入同一逐帧结构。
 
 ## 数据契约
 
@@ -66,9 +69,12 @@ python -m shoplift.cli.offline_analyze --config shoplift/configs/pipeline.exampl
 - 跟踪类型兼容导出：`shoplift/tracking/track_types.py`
 - PaddleDetection 适配器：`shoplift/adapters/paddledet_adapter.py`
 - 人员门控：`shoplift/vision/person_gate.py`
+- 手部 ROI：`shoplift/vision/pose_hand.py`
+- 商品/容器检测适配：`shoplift/vision/object_container.py`
 - 事件 JSON Schema：`shoplift/events/risk_event.schema.json`
 - 事件示例：`shoplift/events/examples/risk_event.example.json`
 - 契约说明：`shoplift/configs/schema.md`
+- 离线 CLI：`shoplift/cli/offline_analyze.py`
 
 PaddleDetection 适配器当前支持三类 P0 输出转换：
 
@@ -77,6 +83,10 @@ PaddleDetection 适配器当前支持三类 P0 输出转换：
 - 关键点：PP-Human `{"keypoint": [keypoints, scores]}` -> `HandRegion`
 
 人员门控当前可从 `DetectionBox`、`Tracklet` 或适配器的帧结果中判断是否有人；无人帧返回 `skipped_heavy_modules=true`，同时累计 `skip_rate` 和 `trigger_rate`。
+
+`pose_hand` 模块基于 COCO wrist/elbow 关键点生成左右手 ROI，支持低置信度 wrist 过滤，并将 `HandRegion.person_track_id` 绑定到对应人员轨迹。
+
+`object_container` 模块将 `product/backpack/handbag/cart/pocket_region` 等模型类别归一到 `item/bag/basket/clothing_region` 等粗粒度内部类别，输出商品、容器和扩展区域分组结果。
 
 ## 参考文档
 

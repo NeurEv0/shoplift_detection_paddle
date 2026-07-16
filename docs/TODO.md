@@ -147,18 +147,18 @@ shoplift/
   - [x] 无人画面跳过重模型。
   - [x] 有人画面输出 `person_track_id`、人体框和轨迹。
   - [x] 记录门控跳过率和触发率。
-- [ ] 7. 实现人体关键点/手部 ROI 初版：
-  - [ ] 基于 wrist/arm 关键点派生左右手区域。
-  - [ ] 支持低置信度关键点过滤。
-  - [ ] 输出手部区域与人员轨迹绑定关系。
-- [ ] 8. 实现商品与容器检测适配：
-  - [ ] 支持粗粒度类别 `item/product`、`bag/backpack/handbag`、`basket/cart`、`stroller`、`helmet`。
-  - [ ] 支持后续扩展 `clothing_region/pocket_region`。
-  - [ ] 输出商品和容器检测结果。
-- [ ] 9. 实现离线分析 CLI：
-  - [ ] 输入本地视频或帧目录。
-  - [ ] 输出逐帧结构化结果。
-  - [ ] 输出调试可视化视频或图片序列。
+- [x] 7. 实现人体关键点/手部 ROI 初版：
+  - [x] 基于 wrist/arm 关键点派生左右手区域。
+  - [x] 支持低置信度关键点过滤。
+  - [x] 输出手部区域与人员轨迹绑定关系。
+- [x] 8. 实现商品与容器检测适配：
+  - [x] 支持粗粒度类别 `item/product`、`bag/backpack/handbag`、`basket/cart`、`stroller`、`helmet`。
+  - [x] 支持后续扩展 `clothing_region/pocket_region`。
+  - [x] 输出商品和容器检测结果。
+- [x] 9. 实现离线分析 CLI：
+  - [x] 输入本地视频或帧目录。
+  - [x] 输出逐帧结构化结果。
+  - [x] 输出调试可视化视频或图片序列。
 
 ### 3.2 P1：关系建模与事件引擎
 

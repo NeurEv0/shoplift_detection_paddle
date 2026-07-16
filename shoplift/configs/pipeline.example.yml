@@ -30,8 +30,11 @@ modules:
       - cart
       - stroller
       - helmet
+      - clothing_region
+      - pocket_region
 
 outputs:
   frame_jsonl: ./outputs/shoplift/frame_results.jsonl
   event_json: ./outputs/shoplift/events.json
   debug_visualization_dir: ./outputs/shoplift/debug
+  debug_visualization_video: ./outputs/shoplift/debug_visualization.mp4

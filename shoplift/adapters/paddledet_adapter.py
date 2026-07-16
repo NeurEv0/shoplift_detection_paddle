@@ -7,13 +7,13 @@ and converts them into the internal dataclasses used by the shoplift modules.
 
 from __future__ import annotations
 
-import math
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from shoplift.core.types import BBox, DetectionBox, FrameMeta, HandRegion, Point, Tracklet
+from shoplift.vision.pose_hand import HandRegionExtractor, PersonPose
 
 
 DEFAULT_CLASS_ID_TO_CATEGORY = {0: "person"}
@@ -37,14 +37,6 @@ DEFAULT_CATEGORY_ALIASES = {
     "cart": "basket",
     "pocket_region": "clothing_region",
 }
-
-COCO_KEYPOINT_INDICES = {
-    "left_elbow": 7,
-    "right_elbow": 8,
-    "left_wrist": 9,
-    "right_wrist": 10,
-}
-
 
 @dataclass(frozen=True)
 class PaddleDetectionEnvironment:
@@ -330,23 +322,28 @@ class PaddleDetectionAdapter:
             return ()
 
         person_tracks = tuple(person_tracks or ())
-        hand_regions: list[HandRegion] = []
+        person_poses: list[PersonPose] = []
         for person_index, person_keypoints in enumerate(keypoints):
             person_scores = scores[person_index] if person_index < len(scores) else []
             person_track = person_tracks[person_index] if person_index < len(person_tracks) else None
             person_track_id = person_track.track_id if person_track is not None else f"person-{person_index}"
             person_bbox = person_track.boxes[-1].bbox if person_track and person_track.boxes else None
-            hand_regions.extend(
-                self._hand_regions_from_person_keypoints(
-                    frame=frame,
-                    person_index=person_index,
+            person_poses.append(
+                PersonPose(
                     person_track_id=person_track_id,
-                    person_keypoints=person_keypoints,
-                    person_scores=person_scores,
+                    keypoints=tuple(person_keypoints),
+                    scores=tuple(person_scores),
                     person_bbox=person_bbox,
+                    metadata={"person_index": person_index},
                 )
             )
-        return tuple(hand_regions)
+        extractor = HandRegionExtractor(
+            min_keypoint_score=self.min_keypoint_score,
+            hand_min_size_px=self.hand_min_size_px,
+            hand_scale_from_forearm=self.hand_scale_from_forearm,
+            source="ppdet_keypoint",
+        )
+        return extractor.extract(frame, person_poses)
 
     def convert_frame_result(
         self,
@@ -668,79 +665,3 @@ class PaddleDetectionAdapter:
         while len(normalized) < person_count:
             normalized.append([])
         return normalized
-
-    def _hand_regions_from_person_keypoints(
-        self,
-        *,
-        frame: FrameMeta,
-        person_index: int,
-        person_track_id: str,
-        person_keypoints: Sequence[Point],
-        person_scores: Sequence[float],
-        person_bbox: BBox | None,
-    ) -> list[HandRegion]:
-        regions: list[HandRegion] = []
-        for side in ("left", "right"):
-            wrist_name = f"{side}_wrist"
-            elbow_name = f"{side}_elbow"
-            wrist_index = COCO_KEYPOINT_INDICES[wrist_name]
-            elbow_index = COCO_KEYPOINT_INDICES[elbow_name]
-            if wrist_index >= len(person_keypoints):
-                continue
-
-            wrist_score = person_scores[wrist_index] if wrist_index < len(person_scores) else 1.0
-            if wrist_score < self.min_keypoint_score:
-                continue
-
-            wrist = person_keypoints[wrist_index]
-            elbow = person_keypoints[elbow_index] if elbow_index < len(person_keypoints) else None
-            elbow_score = person_scores[elbow_index] if elbow_index < len(person_scores) else 0.0
-            radius = self._hand_radius(wrist, elbow, elbow_score, person_bbox)
-            bbox = _clip_bbox(
-                (
-                    wrist[0] - radius,
-                    wrist[1] - radius,
-                    wrist[0] + radius,
-                    wrist[1] + radius,
-                ),
-                frame,
-            )
-            source_points = (wrist, elbow) if elbow is not None and elbow_score >= self.min_keypoint_score else (wrist,)
-            score = min(1.0, (wrist_score + max(elbow_score, wrist_score)) / 2.0)
-            regions.append(
-                HandRegion(
-                    hand_track_id=f"hand-{person_track_id}-{side}",
-                    person_track_id=person_track_id,
-                    frame_id=frame.frame_id,
-                    timestamp_ms=frame.timestamp_ms,
-                    side=side,
-                    bbox=bbox,
-                    score=score,
-                    source_keypoints=source_points,
-                    metadata={
-                        "source": "ppdet_keypoint",
-                        "person_index": person_index,
-                        "wrist_index": wrist_index,
-                        "wrist_score": wrist_score,
-                        "elbow_index": elbow_index,
-                        "elbow_score": elbow_score,
-                    },
-                )
-            )
-        return regions
-
-    def _hand_radius(
-        self,
-        wrist: Point,
-        elbow: Point | None,
-        elbow_score: float,
-        person_bbox: BBox | None,
-    ) -> float:
-        radius = self.hand_min_size_px
-        if elbow is not None and elbow_score >= self.min_keypoint_score:
-            forearm_len = math.dist(wrist, elbow)
-            radius = max(radius, forearm_len * self.hand_scale_from_forearm)
-        elif person_bbox is not None:
-            x1, y1, x2, y2 = person_bbox
-            radius = max(radius, min(x2 - x1, y2 - y1) * 0.08)
-        return radius

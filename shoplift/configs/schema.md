@@ -39,6 +39,62 @@ requiring Paddle or NumPy at import time.
 | `PersonGateMetrics` | Accumulates total frames, skipped frames, triggered frames, `skip_rate`, and `trigger_rate`. |
 | `PersonGate` | Stateful gate that accepts `DetectionBox`, `Tracklet`, or adapter frame results. |
 
+## Pose Hand
+
+`shoplift/vision/pose_hand.py` derives hand ROIs from body keypoints without
+requiring Paddle or NumPy at import time.
+
+| Structure | Purpose |
+|---|---|
+| `PersonPose` | Normalized COCO-style keypoints, scores, optional person bbox, and bound `person_track_id`. |
+| `HandRegionExtractor` | Creates left/right `HandRegion` entries from wrist and elbow keypoints. |
+| `extract_hand_regions` | Convenience function for normalized keypoints plus optional `Tracklet` binding. |
+
+The P0 extractor uses COCO indices `left_elbow=7`, `right_elbow=8`,
+`left_wrist=9`, and `right_wrist=10`. Wrist keypoints below
+`min_keypoint_score` are filtered. When elbow confidence is high, the hand ROI
+size is based on forearm length; otherwise it falls back to the person bbox
+when available.
+
+## Item And Container Detection
+
+`shoplift/vision/object_container.py` normalizes coarse product/container
+detections and groups them for downstream relation analysis.
+
+| Canonical category | Aliases | Role |
+|---|---|---|
+| `item` | `product` | item |
+| `bag` | `backpack`, `handbag` | container |
+| `basket` | `cart` | normal container |
+| `stroller` | - | container |
+| `helmet` | - | container |
+| `clothing_region` | `pocket_region` | extension region |
+
+`ItemContainerDetectionAdapter` preserves model metadata while adding
+`source_category`, `canonical_category`, `detection_role`, and
+`is_normal_container` attributes to each normalized `DetectionBox`.
+
+## Offline Frame Result
+
+`shoplift/cli/offline_analyze.py` writes one JSON object per processed frame to
+`frame_results.jsonl`.
+
+Required top-level fields:
+
+| Field | Description |
+|---|---|
+| `schema_version` | Frame result contract version, currently `shoplift.frame_result.v1`. |
+| `frame` | `FrameMeta` for the processed source frame. |
+| `person_gate` | `PersonGateResult`, including skip/trigger decision and person track ids. |
+| `person_tracks` | Person `Tracklet` entries available for this frame. |
+| `hand_regions` | Bound `HandRegion` entries available for this frame. |
+| `item_container` | Grouped item/container/extension-region detections. |
+| `metadata` | Input type, source frame id, source URI, backend id, and module timing metrics. |
+
+The P0 CLI supports video files and frame directories. The default model-free
+backend emits empty detections while exercising frame IO, person gate decisions,
+JSONL output, empty event output, and debug visualization generation.
+
 ## Event JSON Schema
 
 - Schema: `shoplift/events/risk_event.schema.json`
