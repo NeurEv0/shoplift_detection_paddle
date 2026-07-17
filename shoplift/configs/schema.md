@@ -13,6 +13,7 @@ re-exported from `shoplift/tracking/track_types.py`.
 | `FrameMeta` | Frame identity, timestamp, camera id, and image size. |
 | `DetectionBox` | Generic detection or tracked object box with category and score. |
 | `Tracklet` | Time-ordered detections belonging to one tracked entity. |
+| `BodyPose` | Full-body keypoints, scores, skeleton edges, pose score, and bound person track. |
 | `HandRegion` | Hand ROI tied to a person track and left/right side. |
 | `RelationEvidence` | Explainable hand-item-container relation evidence. |
 | `RiskEvent` | Reviewable risk event emitted to downstream systems. |
@@ -27,7 +28,7 @@ requiring Paddle or NumPy at import time.
 | Detection row `[class_id, score, x1, y1, x2, y2]` | `DetectionBox` |
 | PP-Human/MOT row `[track_id, class_id, score, x1, y1, x2, y2]` | one-frame `Tracklet` |
 | SDE tracker `online_tlwhs`, `online_scores`, `online_ids` | one-frame `Tracklet` |
-| PP-Human keypoint `[keypoints, scores]` | left/right `HandRegion` when wrist score passes threshold |
+| PP-Human keypoint `[keypoints, scores]` | `BodyPose`; optional left/right `HandRegion` only when explicitly enabled |
 
 ## Person Gate
 
@@ -38,6 +39,25 @@ requiring Paddle or NumPy at import time.
 | `PersonGateResult` | Per-frame decision: has person, should run heavy modules, skipped heavy modules, person boxes, and person track ids. |
 | `PersonGateMetrics` | Accumulates total frames, skipped frames, triggered frames, `skip_rate`, and `trigger_rate`. |
 | `PersonGate` | Stateful gate that accepts `DetectionBox`, `Tracklet`, or adapter frame results. |
+
+## Body Pose
+
+`shoplift/vision/body_pose.py` exposes PP-Human keypoints as first-class pose
+evidence instead of treating them only as a hand ROI intermediate.
+
+| Structure | Purpose |
+|---|---|
+| `BodyPoseBuilder` | Binds COCO-style keypoints and scores to `person_track_id`. |
+| `COCO_PERSON_KEYPOINT_NAMES` | The 17 keypoint names used by the PP-Human pose model. |
+| `COCO_PERSON_SKELETON` | Skeleton edge pairs used by debug visualization. |
+
+Each `BodyPose` contains all keypoints, per-keypoint scores, skeleton edges,
+pose-level score, optional person bbox, and visibility metadata.
+
+Current default policy is pose-only. `pose_recognition` and `pose_hand` are
+treated as OR evidence sources, but `pose_hand` is disabled by default because
+manual review marked hand ROI as redundant. Pose wrist keypoints can still feed
+contact evidence without emitting `HandRegion` objects.
 
 ## Pose Hand
 
@@ -87,7 +107,8 @@ Required top-level fields:
 | `frame` | `FrameMeta` for the processed source frame. |
 | `person_gate` | `PersonGateResult`, including skip/trigger decision and person track ids. |
 | `person_tracks` | Person `Tracklet` entries available for this frame. |
-| `hand_regions` | Bound `HandRegion` entries available for this frame. |
+| `body_poses` | Bound `BodyPose` entries available for this frame. |
+| `hand_regions` | Bound `HandRegion` entries available for this frame; empty by default in pose-only mode. |
 | `item_container` | Grouped item/container/extension-region detections. |
 | `metadata` | Input type, source frame id, source URI, backend id, and module timing metrics. |
 
@@ -96,7 +117,7 @@ backend emits empty detections while exercising frame IO, person gate decisions,
 JSONL output, event-engine wiring, and debug visualization generation.
 
 The optional `paddledet_pphuman` backend wraps PaddleDetection deploy
-predictors for PP-Human MOT, optional keypoint-to-hand ROI, and optional
+predictors for PP-Human MOT, optional keypoint-to-body-pose/hand ROI, and optional
 item/container detection. It requires local exported model directories and does
 not auto-download models during offline analysis.
 

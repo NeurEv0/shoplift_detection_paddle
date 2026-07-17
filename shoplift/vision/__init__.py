@@ -14,6 +14,11 @@ from shoplift.vision.object_container import (
     canonical_item_container_category,
     detection_role,
 )
+from shoplift.vision.body_pose import (
+    BodyPoseBuilder,
+    COCO_PERSON_KEYPOINT_NAMES,
+    COCO_PERSON_SKELETON,
+)
 from shoplift.vision.person_gate import (
     PersonGate,
     PersonGateMetrics,
@@ -30,7 +35,10 @@ from shoplift.vision.pose_hand import (
 
 __all__ = [
     "CANONICAL_ITEM_CONTAINER_CLASSES",
+    "BodyPoseBuilder",
     "COCO_KEYPOINT_INDICES",
+    "COCO_PERSON_KEYPOINT_NAMES",
+    "COCO_PERSON_SKELETON",
     "CONTAINER_CATEGORIES",
     "EXTENSION_REGION_CATEGORIES",
     "HandRegionExtractor",

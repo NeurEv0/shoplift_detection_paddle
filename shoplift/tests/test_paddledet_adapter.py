@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from collections import defaultdict
 
 from shoplift.adapters import PaddleDetectionAdapter, SHOPLIFT_CLASS_ID_TO_CATEGORY
 from shoplift.core.types import FrameMeta
@@ -95,6 +96,19 @@ class PaddleDetectionAdapterTest(unittest.TestCase):
         self.assertEqual(tracklets[0].track_id, "person-2")
         self.assertEqual(tracklets[0].boxes[0].bbox, (10.0, 20.0, 40.0, 60.0))
 
+    def test_convert_sde_online_tuple_with_class_mappings(self) -> None:
+        adapter = PaddleDetectionAdapter()
+        sde_output = [
+            defaultdict(list, {0: [[10, 20, 30, 40], [100, 120, 20, 60]]}),
+            defaultdict(list, {0: [0.8, 0.7]}),
+            defaultdict(list, {0: [2, 3]}),
+        ]
+
+        tracklets = adapter.convert_mot_result(sde_output, self.frame)
+
+        self.assertEqual([tracklet.track_id for tracklet in tracklets], ["person-2", "person-3"])
+        self.assertEqual(tracklets[1].boxes[0].bbox, (100.0, 120.0, 120.0, 180.0))
+
     def test_convert_keypoints_to_hand_regions(self) -> None:
         adapter = PaddleDetectionAdapter()
         mot_result = {"boxes": [[7, 0, 0.93, 100, 120, 220, 360]]}
@@ -117,6 +131,27 @@ class PaddleDetectionAdapterTest(unittest.TestCase):
         self.assertEqual(hands[0].person_track_id, "person-7")
         self.assertTrue(hands[0].bbox[0] < keypoints[9][0] < hands[0].bbox[2])
         self.assertEqual(hands[0].metadata["source"], "ppdet_keypoint")
+
+    def test_convert_keypoints_to_body_pose_evidence(self) -> None:
+        adapter = PaddleDetectionAdapter()
+        mot_result = {"boxes": [[7, 0, 0.93, 100, 120, 220, 360]]}
+        person_tracks = adapter.convert_mot_result(mot_result, self.frame)
+        keypoints = [[0.0, 0.0] for _ in range(17)]
+        scores = [0.1 for _ in range(17)]
+        keypoints[5] = [130.0, 180.0]
+        keypoints[7] = [140.0, 220.0]
+        keypoints[9] = [145.0, 260.0]
+        scores[5] = 0.8
+        scores[7] = 0.7
+        scores[9] = 0.9
+        kpt_result = {"keypoint": [[keypoints], [scores]]}
+
+        body_poses = adapter.convert_body_pose_result(kpt_result, self.frame, person_tracks)
+
+        self.assertEqual(len(body_poses), 1)
+        self.assertEqual(body_poses[0].person_track_id, "person-7")
+        self.assertEqual(body_poses[0].metadata["visible_keypoint_count"], 3)
+        self.assertIn((5, 7), body_poses[0].skeleton_edges)
 
     def test_convert_two_person_keypoints_without_score_field(self) -> None:
         adapter = PaddleDetectionAdapter()
@@ -146,7 +181,9 @@ class PaddleDetectionAdapterTest(unittest.TestCase):
         frame_result = adapter.convert_pphuman_result(pphuman_result, self.frame)
 
         self.assertEqual(frame_result.metadata["track_count"], 1)
+        self.assertEqual(frame_result.metadata["body_pose_count"], 1)
         self.assertEqual(frame_result.metadata["hand_region_count"], 2)
+        self.assertEqual(frame_result.to_dict()["body_poses"][0]["person_track_id"], "person-7")
         self.assertEqual(frame_result.to_dict()["person_tracks"][0]["track_id"], "person-7")
 
 

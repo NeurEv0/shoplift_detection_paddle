@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from math import sqrt
 from typing import Iterable, Sequence
 
-from shoplift.core.types import BBox, DetectionBox, HandRegion, RelationEvidence, Tracklet
+from shoplift.core.types import BBox, BodyPose, DetectionBox, HandRegion, RelationEvidence, Tracklet
 
 
 PRIVATE_CONTAINER_CATEGORIES = frozenset({"bag"})
@@ -66,6 +66,7 @@ class AssociationFrame:
     timestamp_ms: int
     camera_id: str
     person_tracks: tuple[Tracklet, ...] = field(default_factory=tuple)
+    body_poses: tuple[BodyPose, ...] = field(default_factory=tuple)
     hand_regions: tuple[HandRegion, ...] = field(default_factory=tuple)
     items: tuple[DetectionBox, ...] = field(default_factory=tuple)
     containers: tuple[DetectionBox, ...] = field(default_factory=tuple)
@@ -168,6 +169,14 @@ def bbox_distance(first: BBox, second: BBox) -> float:
     bx1, by1, bx2, by2 = second
     dx = max(bx1 - ax2, ax1 - bx2, 0.0)
     dy = max(by1 - ay2, ay1 - by2, 0.0)
+    return sqrt(dx * dx + dy * dy)
+
+
+def point_bbox_distance(point: tuple[float, float], bbox: BBox) -> float:
+    x, y = point
+    x1, y1, x2, y2 = bbox
+    dx = max(x1 - x, x - x2, 0.0)
+    dy = max(y1 - y, y - y2, 0.0)
     return sqrt(dx * dx + dy * dy)
 
 
@@ -435,6 +444,160 @@ class HandItemContactAssociator:
             "reason_tags": tags or ["hand_item_near"],
             "distance_px": distance,
             "iou": iou,
+            "motion_similarity": motion_similarity,
+            "base_score": min(1.0, base_score),
+        }
+
+    def _drop_inactive(self, active_keys: set[tuple[str, str, str]]) -> None:
+        for key in list(self._states):
+            state = self._states[key]
+            if key not in active_keys and state.consecutive_frames == 0:
+                del self._states[key]
+
+
+class PoseItemContactAssociator:
+    """Detect item contact from pose wrist keypoints without hand ROI boxes."""
+
+    WRIST_KEYPOINTS = (("left", 9), ("right", 10))
+
+    def __init__(self, config: AssociationConfig | None = None) -> None:
+        self.config = config or AssociationConfig()
+        self._states: dict[tuple[str, str, str], _ContactState] = {}
+
+    def update(
+        self,
+        *,
+        frame_id: int,
+        timestamp_ms: int,
+        body_poses: Sequence[BodyPose],
+        items: Sequence[TrackedDetection],
+    ) -> tuple[RelationEvidence, ...]:
+        evidences: list[RelationEvidence] = []
+        active_keys: set[tuple[str, str, str]] = set()
+
+        for pose in body_poses:
+            min_score = float(pose.metadata.get("min_keypoint_score", 0.2))
+            for side, wrist_index in self.WRIST_KEYPOINTS:
+                wrist = _keypoint_at(pose, wrist_index, min_score)
+                if wrist is None:
+                    continue
+                wrist_track_id = f"pose-{pose.person_track_id}-{side}_wrist"
+                for tracked_item in items:
+                    item = tracked_item.detection
+                    item_track_id = tracked_item.track_id
+                    key = (pose.person_track_id, wrist_track_id, item_track_id)
+                    active_keys.add(key)
+                    state = self._states.setdefault(key, _ContactState())
+                    metrics = self._contact_metrics(wrist.point, wrist.score, item, state)
+
+                    if metrics["is_contact"]:
+                        if state.last_frame_id is not None and frame_id - state.last_frame_id <= self.config.max_frame_gap:
+                            state.consecutive_frames += 1
+                        else:
+                            state.consecutive_frames = 1
+                        state.last_frame_id = frame_id
+                        state.last_hand_center = wrist.point
+                        state.last_item_center = item.center
+                    else:
+                        state.consecutive_frames = 0
+                        state.last_frame_id = frame_id
+                        state.last_hand_center = wrist.point
+                        state.last_item_center = item.center
+                        continue
+
+                    if state.consecutive_frames < self.config.min_contact_frames:
+                        continue
+
+                    tags = list(metrics["reason_tags"])
+                    tags.extend(("pose_wrist_item_contact", "pose_only", "temporal_consistent"))
+                    motion_similarity = metrics["motion_similarity"]
+                    if motion_similarity is not None and motion_similarity >= self.config.min_motion_cosine:
+                        tags.append("motion_aligned")
+                    if wrist.score < self.config.low_confidence_score or item.score < self.config.low_confidence_score:
+                        tags.append("low_confidence")
+
+                    score = min(
+                        1.0,
+                        float(metrics["base_score"])
+                        + 0.2 * min(1.0, state.consecutive_frames / max(1, self.config.min_contact_frames))
+                        + (0.1 if "motion_aligned" in tags else 0.0),
+                    )
+                    if "low_confidence" in tags:
+                        score = min(score, 0.55)
+
+                    evidences.append(
+                        RelationEvidence(
+                            relation_type="hand_item_contact",
+                            frame_id=frame_id,
+                            timestamp_ms=timestamp_ms,
+                            score=score,
+                            reason_tags=tuple(dict.fromkeys(tags)),
+                            person_track_id=pose.person_track_id,
+                            hand_track_id=wrist_track_id,
+                            item_track_id=item_track_id,
+                            evidence_boxes={"wrist": _point_bbox(wrist.point), "item": item.bbox},
+                            metadata={
+                                "contact_source": "body_pose",
+                                "contact_frames": state.consecutive_frames,
+                                "distance_px": metrics["distance_px"],
+                                "motion_similarity": motion_similarity,
+                                "item_box_id": item.box_id,
+                                "pose_id": pose.pose_id,
+                                "wrist_side": side,
+                                "wrist_index": wrist_index,
+                                "wrist_score": wrist.score,
+                                "pose_score": pose.score,
+                            },
+                        )
+                    )
+
+        self._drop_inactive(active_keys)
+        return tuple(evidences)
+
+    def _contact_metrics(
+        self,
+        wrist_point: tuple[float, float],
+        wrist_score: float,
+        item: DetectionBox,
+        state: _ContactState,
+    ) -> dict[str, object]:
+        item_w, item_h = bbox_size(item.bbox)
+        threshold = max(
+            self.config.max_contact_distance_px,
+            max(item_w, item_h) * self.config.contact_distance_ratio,
+        )
+        distance = point_bbox_distance(wrist_point, item.bbox)
+        inside = point_in_bbox(wrist_point, expand_bbox(item.bbox, 4.0))
+        is_close = distance <= threshold
+        is_contact = is_close or inside
+
+        tags: list[str] = []
+        if is_close:
+            tags.append("pose_wrist_item_distance_close")
+        if inside:
+            tags.append("pose_wrist_inside_item")
+
+        motion_similarity: float | None = None
+        if state.last_hand_center is not None and state.last_item_center is not None:
+            wrist_vector = (
+                wrist_point[0] - state.last_hand_center[0],
+                wrist_point[1] - state.last_hand_center[1],
+            )
+            item_vector = (
+                item.center[0] - state.last_item_center[0],
+                item.center[1] - state.last_item_center[1],
+            )
+            motion_similarity = cosine_similarity(wrist_vector, item_vector)
+
+        distance_score = max(0.0, 1.0 - distance / max(1.0, threshold))
+        base_score = 0.65 * distance_score + 0.2 * (1.0 if inside else 0.0) + 0.15 * wrist_score
+        if motion_similarity is not None:
+            base_score += 0.1 * max(0.0, motion_similarity)
+
+        return {
+            "is_contact": is_contact,
+            "reason_tags": tags or ["pose_wrist_item_near"],
+            "distance_px": distance,
             "motion_similarity": motion_similarity,
             "base_score": min(1.0, base_score),
         }
@@ -836,6 +999,7 @@ class ShopliftingRelationAssociator:
         self.config = config or AssociationConfig()
         self.item_stitcher = ItemTrackStitcher(self.config)
         self.hand_item_contact = HandItemContactAssociator(self.config)
+        self.pose_item_contact = PoseItemContactAssociator(self.config)
         self.item_follow_person = ItemFollowPersonAssociator(self.config)
         self.container_entry = ContainerEntryDetector(self.config)
         self.disappearance_after_entry = DisappearanceAfterEntryDetector(self.config)
@@ -844,12 +1008,19 @@ class ShopliftingRelationAssociator:
         tracked_items = self.item_stitcher.update(frame.items, frame.frame_id)
         relation_groups: list[tuple[RelationEvidence, ...]] = []
 
-        contact = self.hand_item_contact.update(
+        hand_contact = self.hand_item_contact.update(
             frame_id=frame.frame_id,
             timestamp_ms=frame.timestamp_ms,
             hands=frame.hand_regions,
             items=tracked_items,
         )
+        pose_contact = self.pose_item_contact.update(
+            frame_id=frame.frame_id,
+            timestamp_ms=frame.timestamp_ms,
+            body_poses=frame.body_poses,
+            items=tracked_items,
+        )
+        contact = _dedupe_contact_evidence(tuple(hand_contact) + tuple(pose_contact))
         relation_groups.append(contact)
 
         follow = self.item_follow_person.update(
@@ -901,6 +1072,39 @@ def _count_by_relation_type(relations: Sequence[RelationEvidence]) -> dict[str, 
     return counts
 
 
+@dataclass(frozen=True)
+class _PoseKeypoint:
+    point: tuple[float, float]
+    score: float
+
+
+def _keypoint_at(pose: BodyPose, index: int, min_score: float) -> _PoseKeypoint | None:
+    if index >= len(pose.keypoints):
+        return None
+    score = pose.scores[index] if index < len(pose.scores) else 1.0
+    if score < min_score:
+        return None
+    point = pose.keypoints[index]
+    if point[0] <= 0.0 and point[1] <= 0.0:
+        return None
+    return _PoseKeypoint(point=point, score=score)
+
+
+def _point_bbox(point: tuple[float, float], radius: float = 1.0) -> BBox:
+    x, y = point
+    return (x - radius, y - radius, x + radius, y + radius)
+
+
+def _dedupe_contact_evidence(evidences: Sequence[RelationEvidence]) -> tuple[RelationEvidence, ...]:
+    best_by_key: dict[tuple[str | None, str | None, int], RelationEvidence] = {}
+    for evidence in evidences:
+        key = (evidence.person_track_id, evidence.item_track_id, evidence.frame_id)
+        previous = best_by_key.get(key)
+        if previous is None or evidence.score > previous.score:
+            best_by_key[key] = evidence
+    return tuple(best_by_key.values())
+
+
 def _point_distance(first: tuple[float, float], second: tuple[float, float]) -> float:
     return sqrt((first[0] - second[0]) ** 2 + (first[1] - second[1]) ** 2)
 
@@ -916,6 +1120,7 @@ __all__ = [
     "HandRegion",
     "ItemFollowPersonAssociator",
     "ItemTrackStitcher",
+    "PoseItemContactAssociator",
     "RelationEvidence",
     "ShopliftingRelationAssociator",
     "TrackedDetection",
@@ -927,4 +1132,5 @@ __all__ = [
     "bbox_iou",
     "container_kind",
     "detection_track_id",
+    "point_bbox_distance",
 ]

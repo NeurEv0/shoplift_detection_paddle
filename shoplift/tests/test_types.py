@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from shoplift.core.types import (
+    BodyPose,
     DetectionBox,
     FrameMeta,
     HandRegion,
@@ -41,6 +42,18 @@ class CoreTypesTest(unittest.TestCase):
             score=0.78,
             source_keypoints=((100, 170),),
         )
+        body_pose = BodyPose(
+            pose_id="pose-person-1",
+            person_track_id="person-1",
+            frame_id=1,
+            timestamp_ms=33,
+            keypoints=((100, 100), (110, 110)),
+            scores=(0.9, 0.8),
+            score=0.85,
+            keypoint_names=("nose", "left_eye"),
+            skeleton_edges=((0, 1),),
+            bbox=person_box.bbox,
+        )
         evidence = RelationEvidence(
             relation_type="hand_item_contact",
             frame_id=1,
@@ -68,6 +81,7 @@ class CoreTypesTest(unittest.TestCase):
 
         self.assertEqual(payload["camera_id"], "camera-1")
         self.assertEqual(payload["evidence"][0]["evidence_boxes"]["hand"], [80.0, 150.0, 120.0, 190.0])
+        self.assertEqual(body_pose.to_dict()["skeleton_edges"], [[0, 1]])
         self.assertEqual(tracklet.start_frame_id, 1)
         self.assertEqual(person_box.center, (60.0, 120.0))
 

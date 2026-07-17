@@ -17,7 +17,7 @@ from shoplift.cli.offline_analyze import (
     main,
     run_offline_analysis,
 )
-from shoplift.core.types import DetectionBox, HandRegion, Tracklet
+from shoplift.core.types import BodyPose, DetectionBox, HandRegion, Tracklet
 
 
 class OfflineAnalyzeTest(unittest.TestCase):
@@ -56,7 +56,7 @@ class OfflineAnalyzeTest(unittest.TestCase):
             self.assertEqual(json.loads((output_dir / "events.json").read_text(encoding="utf-8")), [])
             self.assertEqual(len(list((output_dir / "debug").glob("*.jpg"))), 2)
 
-    def test_backend_results_are_written_to_hand_and_item_container_outputs(self) -> None:
+    def test_backend_results_are_written_to_pose_and_item_container_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             frame_dir = root / "frames"
@@ -84,7 +84,8 @@ class OfflineAnalyzeTest(unittest.TestCase):
             self.assertEqual(summary.processed_frames, 1)
             payload = self.read_jsonl(output_dir / "frame_results.jsonl")[0]
             self.assertFalse(payload["person_gate"]["skipped_heavy_modules"])
-            self.assertEqual(payload["hand_regions"][0]["person_track_id"], "person-42")
+            self.assertEqual(payload["body_poses"][0]["person_track_id"], "person-42")
+            self.assertEqual(payload["hand_regions"], [])
             self.assertEqual([box["category"] for box in payload["item_container"]["items"]], ["item"])
             self.assertEqual([box["category"] for box in payload["item_container"]["containers"]], ["bag"])
             self.assertEqual(payload["metadata"]["backend"], "fixture")
@@ -128,6 +129,51 @@ class OfflineAnalyzeTest(unittest.TestCase):
             self.assertEqual(summary.input_type, "video")
             self.assertEqual(summary.processed_frames, 2)
             self.assertEqual(len(self.read_jsonl(output_dir / "frame_results.jsonl")), 2)
+
+    def test_video_debug_can_write_sampled_frame_images(self) -> None:
+        cv2 = self.import_cv2()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video_path = root / "sample.mp4"
+            writer = cv2.VideoWriter(
+                str(video_path),
+                cv2.VideoWriter_fourcc(*"mp4v"),
+                6.0,
+                (64, 48),
+            )
+            if not writer.isOpened():
+                self.skipTest("OpenCV video writer is not available")
+            for _ in range(4):
+                writer.write(self.blank_image(width=64, height=48))
+            writer.release()
+
+            output_dir = root / "outputs"
+            config = OfflineConfig(
+                camera_id="camera-video",
+                input_path=video_path,
+                input_type=None,
+                runtime=RuntimeOptions(
+                    frame_stride=2,
+                    max_frames=2,
+                    save_debug_visualization=True,
+                    save_debug_frames=True,
+                ),
+                modules=ModuleOptions(),
+                backend=BackendOptions(),
+                outputs=OutputPaths(
+                    root=output_dir,
+                    frame_jsonl=output_dir / "frame_results.jsonl",
+                    event_json=output_dir / "events.json",
+                    debug_dir=output_dir / "debug",
+                    debug_video=output_dir / "debug.mp4",
+                ),
+            )
+
+            summary = run_offline_analysis(config)
+
+            self.assertEqual(summary.processed_frames, 2)
+            self.assertTrue((output_dir / "debug.mp4").exists())
+            self.assertEqual(len(list((output_dir / "debug").glob("*.jpg"))), 2)
 
     def write_config(self, path: Path, input_path: Path) -> Path:
         path.write_text(
@@ -218,9 +264,22 @@ class FixtureBackend:
             bbox=(28, 22, 40, 36),
             score=0.75,
         )
+        body_pose = BodyPose(
+            pose_id="pose-person-42",
+            person_track_id="person-42",
+            frame_id=packet.frame.frame_id,
+            timestamp_ms=packet.frame.timestamp_ms,
+            keypoints=((10, 10), (20, 20)),
+            scores=(0.9, 0.8),
+            score=0.85,
+            keypoint_names=("nose", "left_eye"),
+            skeleton_edges=((0, 1),),
+            bbox=person_box.bbox,
+        )
         return VisionBackendResult(
             detections=(item_box, bag_box),
             person_tracks=(tracklet,),
+            body_poses=(body_pose,),
             hand_regions=(hand,),
             metadata={"backend": "fixture"},
         )

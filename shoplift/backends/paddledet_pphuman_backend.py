@@ -16,7 +16,7 @@ from shoplift.adapters.paddledet_adapter import (
     PaddleDetectionAdapter,
     SHOPLIFT_CLASS_ID_TO_CATEGORY,
 )
-from shoplift.core.types import DetectionBox, Tracklet
+from shoplift.core.types import BodyPose, DetectionBox, Tracklet
 
 if TYPE_CHECKING:
     from shoplift.cli.offline_analyze import FramePacket, VisionBackendResult
@@ -96,6 +96,7 @@ class PaddleDetModuleConfig:
     model_dir: Path | None = None
     batch_size: int = 1
     threshold: float = 0.5
+    derive_hand_regions: bool = False
 
 
 @dataclass(frozen=True)
@@ -179,6 +180,7 @@ class PaddleDetPPHumanBackendConfig:
                 model_dir=_resolve_path(_as_path(kpt_mapping.get("model_dir") or pphuman_kpt.get("model_dir")), project_root=project_root),
                 batch_size=int(kpt_mapping.get("batch_size", pphuman_kpt.get("batch_size", 8))),
                 threshold=float(kpt_mapping.get("threshold", pphuman_cfg.get("kpt_thresh", 0.2))),
+                derive_hand_regions=_as_bool(kpt_mapping.get("derive_hand_regions"), False),
             ),
             item_container=PaddleDetModuleConfig(
                 enabled=_as_bool(item_mapping.get("enabled"), False),
@@ -214,6 +216,7 @@ class PaddleDetPPHumanBackend:
         self._ensure_initialized()
 
         person_tracks: tuple[Tracklet, ...] = ()
+        body_poses: tuple[BodyPose, ...] = ()
         hand_regions = ()
         detections: tuple[DetectionBox, ...] = ()
 
@@ -241,13 +244,21 @@ class PaddleDetPPHumanBackend:
 
         if self._keypoint_predictor is not None and person_tracks:
             keypoint_payload = self._predict_keypoints(frame_rgb, packet, person_tracks)
-            hand_regions = self.person_adapter.convert_keypoint_result(
+            body_poses = self.person_adapter.convert_body_pose_result(
                 keypoint_payload,
                 packet.frame,
                 person_tracks,
             )
+            if self.config.keypoint.derive_hand_regions:
+                hand_regions = self.person_adapter.convert_keypoint_result(
+                    keypoint_payload,
+                    packet.frame,
+                    person_tracks,
+                )
+            metadata["body_pose_count"] = len(body_poses)
             metadata["hand_region_count"] = len(hand_regions)
         elif self.config.keypoint.enabled:
+            metadata["body_pose_count"] = 0
             metadata["hand_region_count"] = 0
 
         if self._item_detector is not None:
@@ -264,6 +275,7 @@ class PaddleDetPPHumanBackend:
         return VisionBackendResult(
             detections=detections,
             person_tracks=person_tracks,
+            body_poses=body_poses,
             hand_regions=hand_regions,
             metadata=metadata,
         )

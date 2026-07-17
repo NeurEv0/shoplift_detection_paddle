@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import unittest
 
-from shoplift.core.types import DetectionBox, HandRegion, RelationEvidence, Tracklet
+from shoplift.core.types import BodyPose, DetectionBox, HandRegion, RelationEvidence, Tracklet
 from shoplift.tracking.association import (
     AssociationConfig,
+    AssociationFrame,
     ContainerEntryDetector,
     DisappearanceAfterEntryDetector,
     HandItemContactAssociator,
     ItemFollowPersonAssociator,
+    PoseItemContactAssociator,
+    ShopliftingRelationAssociator,
     TrackedDetection,
 )
 
@@ -44,6 +47,26 @@ def _hand(frame_id: int, bbox: tuple[float, float, float, float]) -> HandRegion:
         side="right",
         bbox=bbox,
         score=0.9,
+    )
+
+
+def _pose(frame_id: int, wrist: tuple[float, float]) -> BodyPose:
+    keypoints = [(0.0, 0.0) for _ in range(17)]
+    scores = [0.0 for _ in range(17)]
+    keypoints[10] = wrist
+    scores[10] = 0.9
+    return BodyPose(
+        pose_id="pose-person-1",
+        person_track_id="person-1",
+        frame_id=frame_id,
+        timestamp_ms=frame_id * 33,
+        keypoints=tuple(keypoints),
+        scores=tuple(scores),
+        score=0.9,
+        keypoint_names=tuple(str(index) for index in range(17)),
+        skeleton_edges=((8, 10),),
+        bbox=(50, 50, 180, 220),
+        metadata={"min_keypoint_score": 0.2},
     )
 
 
@@ -89,6 +112,47 @@ class AssociationTest(unittest.TestCase):
         self.assertEqual(third[0].relation_type, "hand_item_contact")
         self.assertIn("temporal_consistent", third[0].reason_tags)
         self.assertIn("motion_aligned", third[0].reason_tags)
+
+    def test_pose_item_contact_uses_wrist_keypoints_without_hand_roi(self) -> None:
+        associator = PoseItemContactAssociator(AssociationConfig(min_contact_frames=2))
+
+        first = associator.update(
+            frame_id=1,
+            timestamp_ms=33,
+            body_poses=(_pose(1, (130, 116)),),
+            items=(_tracked_item(1, (126, 104, 150, 126)),),
+        )
+        second = associator.update(
+            frame_id=2,
+            timestamp_ms=66,
+            body_poses=(_pose(2, (135, 116)),),
+            items=(_tracked_item(2, (131, 104, 155, 126)),),
+        )
+
+        self.assertEqual(first, ())
+        self.assertEqual(len(second), 1)
+        self.assertEqual(second[0].relation_type, "hand_item_contact")
+        self.assertIn("pose_only", second[0].reason_tags)
+        self.assertEqual(second[0].metadata["contact_source"], "body_pose")
+        self.assertIn("wrist", second[0].evidence_boxes)
+
+    def test_relation_associator_uses_pose_contact_when_hand_roi_absent(self) -> None:
+        associator = ShopliftingRelationAssociator(AssociationConfig(min_contact_frames=1))
+        frame = AssociationFrame(
+            frame_id=1,
+            timestamp_ms=33,
+            camera_id="camera-1",
+            person_tracks=(_person(1, "person-1", (50, 50, 180, 220)),),
+            body_poses=(_pose(1, (130, 116)),),
+            hand_regions=(),
+            items=(_box("item-box-1", 1, "item", (126, 104, 150, 126), track_id="item-1"),),
+        )
+
+        result = associator.update(frame)
+
+        contact = [relation for relation in result.relations if relation.relation_type == "hand_item_contact"]
+        self.assertEqual(len(contact), 1)
+        self.assertIn("pose_only", contact[0].reason_tags)
 
     def test_item_follow_person_handles_short_missing_gap(self) -> None:
         associator = ItemFollowPersonAssociator(AssociationConfig(max_missing_frames=2))

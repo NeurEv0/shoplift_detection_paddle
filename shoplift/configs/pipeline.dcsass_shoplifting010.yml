@@ -1,38 +1,39 @@
-camera_id: demo-camera-001
+camera_id: dcsass-shoplifting010
 
 input:
   type: video
-  path: ./data/samples/demo.mp4
+  path: ./datasets/DCSASS_Shoplifting/merged_videos/Shoplifting010_x264_merged.mp4
 
 runtime:
   device: cpu
-  frame_stride: 1
+  frame_stride: 30
   max_frames: null
+  save_debug_visualization: true
+  save_debug_frames: true
 
 backend:
-  # Use "paddledet_pphuman" after configuring local exported model dirs below.
-  # The default keeps CPU-only tests and dry runs independent from model weights.
-  type: model_free
+  type: paddledet_pphuman
   paddledetection_root: ./src/PaddleDetection-release-2.9
   pphuman_config: ./src/PaddleDetection-release-2.9/deploy/pipeline/config/infer_cfg_pphuman.yml
   device: cpu
   run_mode: paddle
+  output_dir: ./outputs/paddledet/dcsass_shoplifting010
   mot:
     enabled: true
-    model_dir: ./models/paddledetection/person_mot
+    model_dir: C:/shoplift_models/paddledetection/person_mot
     tracker_config: ./src/PaddleDetection-release-2.9/deploy/pipeline/config/tracker_config.yml
     threshold: 0.5
     batch_size: 1
     skip_frame_num: -1
   keypoint:
-    enabled: false
-    model_dir: ./models/paddledetection/person_keypoint
+    enabled: true
+    model_dir: C:/shoplift_models/paddledetection/person_keypoint
     threshold: 0.2
     batch_size: 8
     derive_hand_regions: false
   item_container:
     enabled: false
-    model_dir: ./models/shoplift/item_container
+    model_dir: C:/shoplift_models/shoplift/item_container
     threshold: 0.35
     batch_size: 1
 
@@ -48,7 +49,7 @@ modules:
     enabled: false
     min_keypoint_score: 0.2
   item_container:
-    enabled: true
+    enabled: false
     min_score: 0.35
     classes:
       - item
@@ -64,7 +65,7 @@ modules:
       - pocket_region
 
 outputs:
-  frame_jsonl: ./outputs/shoplift/frame_results.jsonl
-  event_json: ./outputs/shoplift/events.json
-  debug_visualization_dir: ./outputs/shoplift/debug
-  debug_visualization_video: ./outputs/shoplift/debug_visualization.mp4
+  frame_jsonl: ./outputs/inference_visualization/dcsass_shoplifting010/frame_results.jsonl
+  event_json: ./outputs/inference_visualization/dcsass_shoplifting010/events.json
+  debug_visualization_dir: ./outputs/inference_visualization/dcsass_shoplifting010/debug_frames
+  debug_visualization_video: ./outputs/inference_visualization/dcsass_shoplifting010/debug_visualization.mp4

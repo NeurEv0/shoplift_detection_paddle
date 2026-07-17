@@ -185,6 +185,47 @@ class HandRegion:
 
 
 @dataclass(frozen=True)
+class BodyPose:
+    """Full-body keypoints and skeleton evidence for one tracked person."""
+
+    pose_id: str
+    person_track_id: str
+    frame_id: int
+    timestamp_ms: int
+    keypoints: tuple[Point, ...]
+    scores: tuple[float, ...]
+    score: float
+    keypoint_names: tuple[str, ...] = field(default_factory=tuple)
+    skeleton_edges: tuple[tuple[int, int], ...] = field(default_factory=tuple)
+    bbox: BBox | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        _validate_non_empty(self.pose_id, "pose_id")
+        _validate_non_empty(self.person_track_id, "person_track_id")
+        _validate_non_negative(self.frame_id, "frame_id")
+        _validate_non_negative(self.timestamp_ms, "timestamp_ms")
+        _validate_score(float(self.score))
+        scores = tuple(float(score) for score in self.scores)
+        for score in scores:
+            _validate_score(score, "scores")
+        edges = tuple((int(start), int(end)) for start, end in self.skeleton_edges)
+        for start, end in edges:
+            _validate_non_negative(start, "skeleton_edges")
+            _validate_non_negative(end, "skeleton_edges")
+        object.__setattr__(self, "keypoints", _normalize_points(tuple(self.keypoints)))
+        object.__setattr__(self, "scores", scores)
+        object.__setattr__(self, "score", float(self.score))
+        object.__setattr__(self, "keypoint_names", tuple(str(name) for name in self.keypoint_names))
+        object.__setattr__(self, "skeleton_edges", edges)
+        if self.bbox is not None:
+            object.__setattr__(self, "bbox", _normalize_bbox(self.bbox))
+
+    def to_dict(self) -> dict[str, Any]:
+        return _jsonable(self)
+
+
+@dataclass(frozen=True)
 class RelationEvidence:
     """Explainable evidence for a hand-item-container temporal relation."""
 

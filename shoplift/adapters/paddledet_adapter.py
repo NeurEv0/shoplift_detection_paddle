@@ -12,7 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
-from shoplift.core.types import BBox, DetectionBox, FrameMeta, HandRegion, Point, Tracklet
+from shoplift.core.types import BBox, BodyPose, DetectionBox, FrameMeta, HandRegion, Point, Tracklet
+from shoplift.vision.body_pose import BodyPoseBuilder
 from shoplift.vision.pose_hand import HandRegionExtractor, PersonPose
 
 
@@ -63,6 +64,7 @@ class PaddleDetectionFrameResult:
     frame: FrameMeta
     detections: tuple[DetectionBox, ...] = field(default_factory=tuple)
     person_tracks: tuple[Tracklet, ...] = field(default_factory=tuple)
+    body_poses: tuple[BodyPose, ...] = field(default_factory=tuple)
     hand_regions: tuple[HandRegion, ...] = field(default_factory=tuple)
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -71,6 +73,7 @@ class PaddleDetectionFrameResult:
             "frame": self.frame.to_dict(),
             "detections": [detection.to_dict() for detection in self.detections],
             "person_tracks": [tracklet.to_dict() for tracklet in self.person_tracks],
+            "body_poses": [body_pose.to_dict() for body_pose in self.body_poses],
             "hand_regions": [hand_region.to_dict() for hand_region in self.hand_regions],
             "metadata": self.metadata,
         }
@@ -345,6 +348,23 @@ class PaddleDetectionAdapter:
         )
         return extractor.extract(frame, person_poses)
 
+    def convert_body_pose_result(
+        self,
+        result: Any,
+        frame: FrameMeta,
+        person_tracks: Sequence[Tracklet] | None = None,
+    ) -> tuple[BodyPose, ...]:
+        """Convert PP-Human keypoints into full-body pose evidence."""
+
+        keypoints, scores = self._split_keypoint_result(result)
+        if not keypoints:
+            return ()
+        builder = BodyPoseBuilder(
+            min_keypoint_score=self.min_keypoint_score,
+            source="ppdet_keypoint",
+        )
+        return builder.build(frame, keypoints, scores, person_tracks)
+
     def convert_frame_result(
         self,
         frame: FrameMeta,
@@ -360,14 +380,21 @@ class PaddleDetectionAdapter:
             if keypoint_result is not None
             else ()
         )
+        body_poses = (
+            self.convert_body_pose_result(keypoint_result, frame, person_tracks)
+            if keypoint_result is not None
+            else ()
+        )
         return PaddleDetectionFrameResult(
             frame=frame,
             detections=detections,
             person_tracks=person_tracks,
+            body_poses=body_poses,
             hand_regions=hand_regions,
             metadata={
                 "det_count": len(detections),
                 "track_count": len(person_tracks),
+                "body_pose_count": len(body_poses),
                 "hand_region_count": len(hand_regions),
             },
         )
@@ -528,7 +555,7 @@ class PaddleDetectionAdapter:
                 result["online_scores"],
                 result["online_ids"],
             )
-        if isinstance(result, (list, tuple)) and len(result) == 3 and not _is_row(result[0]):
+        if isinstance(result, (list, tuple)) and len(result) == 3:
             return self._mot_rows_from_online(result[0], result[1], result[2])
         return _rows_from_result(result, "boxes")
 

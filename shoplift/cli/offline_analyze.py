@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping, Protocol, Sequence
 
-from shoplift.core.types import DetectionBox, FrameMeta, HandRegion, Tracklet
+from shoplift.core.types import BodyPose, DetectionBox, FrameMeta, HandRegion, Tracklet
 from shoplift.events.event_engine import ShopliftingEventEngine
 from shoplift.events.event_schema import risk_event_to_payload
 from shoplift.tracking.association import AssociationFrame
@@ -23,7 +23,7 @@ from shoplift.vision import (
 
 FRAME_RESULT_SCHEMA_VERSION = "shoplift.frame_result.v1"
 IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"})
-VIDEO_EXTENSIONS = frozenset({".mp4", ".avi", ".mov", ".mkv", ".m4v", ".wmv"})
+VIDEO_EXTENSIONS = frozenset({".mp4", ".avi", ".mov", ".mkv", ".m4v", ".wmv", ".mpg", ".mpeg"})
 
 
 @dataclass(frozen=True)
@@ -31,6 +31,7 @@ class RuntimeOptions:
     frame_stride: int = 1
     max_frames: int | None = None
     save_debug_visualization: bool = True
+    save_debug_frames: bool = False
 
 
 @dataclass(frozen=True)
@@ -38,7 +39,9 @@ class ModuleOptions:
     person_gate_enabled: bool = True
     person_gate_min_score: float = 0.45
     person_gate_skip_when_empty: bool = True
-    pose_hand_enabled: bool = True
+    pose_recognition_enabled: bool = True
+    pose_recognition_min_keypoint_score: float = 0.2
+    pose_hand_enabled: bool = False
     pose_hand_min_keypoint_score: float = 0.2
     item_container_enabled: bool = True
     item_container_min_score: float = 0.35
@@ -85,6 +88,7 @@ class FramePacket:
 class VisionBackendResult:
     detections: tuple[DetectionBox, ...] = ()
     person_tracks: tuple[Tracklet, ...] = ()
+    body_poses: tuple[BodyPose, ...] = ()
     hand_regions: tuple[HandRegion, ...] = ()
     metadata: dict[str, Any] | None = None
 
@@ -105,6 +109,7 @@ class ModelFreeVisionBackend:
 class FrameAnalysis:
     payload: dict[str, Any]
     person_tracks: tuple[Tracklet, ...]
+    body_poses: tuple[BodyPose, ...]
     hand_regions: tuple[HandRegion, ...]
     item_container: ItemContainerResult
 
@@ -142,6 +147,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--frame-stride", type=int, default=None, help="Process one frame every N source frames.")
     parser.add_argument("--max-frames", type=int, default=None, help="Stop after N processed frames.")
     parser.add_argument("--no-debug", action="store_true", help="Do not write debug visualization artifacts.")
+    parser.add_argument(
+        "--debug-frames",
+        action="store_true",
+        help="For video input, also save sampled debug frames as JPG images.",
+    )
     parser.add_argument(
         "--backend",
         choices=("model_free", "paddledet_pphuman"),
@@ -190,10 +200,16 @@ def load_offline_config(args: argparse.Namespace) -> OfflineConfig:
             runtime_section.get("save_debug_visualization", True)
         )
         and not args.no_debug,
+        save_debug_frames=(
+            bool(runtime_section.get("save_debug_frames", False))
+            or bool(getattr(args, "debug_frames", False))
+        )
+        and not args.no_debug,
     )
 
     modules_section = _mapping_at(config_data, "modules")
     person_gate_section = _mapping_at(modules_section, "person_gate")
+    pose_recognition_section = _mapping_at(modules_section, "pose_recognition")
     pose_hand_section = _mapping_at(modules_section, "pose_hand")
     item_container_section = _mapping_at(modules_section, "item_container")
     configured_classes = item_container_section.get("classes")
@@ -201,7 +217,9 @@ def load_offline_config(args: argparse.Namespace) -> OfflineConfig:
         person_gate_enabled=bool(person_gate_section.get("enabled", True)),
         person_gate_min_score=float(person_gate_section.get("min_score", 0.45)),
         person_gate_skip_when_empty=bool(person_gate_section.get("skip_when_empty", True)),
-        pose_hand_enabled=bool(pose_hand_section.get("enabled", True)),
+        pose_recognition_enabled=bool(pose_recognition_section.get("enabled", True)),
+        pose_recognition_min_keypoint_score=float(pose_recognition_section.get("min_keypoint_score", 0.2)),
+        pose_hand_enabled=bool(pose_hand_section.get("enabled", False)),
         pose_hand_min_keypoint_score=float(pose_hand_section.get("min_keypoint_score", 0.2)),
         item_container_enabled=bool(item_container_section.get("enabled", True)),
         item_container_min_score=float(item_container_section.get("min_score", 0.35)),
@@ -267,6 +285,8 @@ def run_offline_analysis(
         output_dir=config.outputs.debug_dir,
         output_video=config.outputs.debug_video,
         enabled=config.runtime.save_debug_visualization,
+        frame_stride=config.runtime.frame_stride,
+        save_frame_images=config.runtime.save_debug_frames,
     )
     try:
         with config.outputs.frame_jsonl.open("w", encoding="utf-8") as jsonl:
@@ -291,6 +311,7 @@ def run_offline_analysis(
                         timestamp_ms=packet.frame.timestamp_ms,
                         camera_id=packet.frame.camera_id,
                         person_tracks=analysis.person_tracks,
+                        body_poses=analysis.body_poses,
                         hand_regions=analysis.hand_regions,
                         items=analysis.item_container.items,
                         containers=analysis.item_container.containers,
@@ -415,8 +436,10 @@ def analyze_packet_components(
         )
     timings["person_gate"] = _elapsed_ms(started)
 
+    body_poses = backend_result.body_poses if modules.pose_recognition_enabled else ()
     hand_regions = backend_result.hand_regions if modules.pose_hand_enabled else ()
     if gate_result.skipped_heavy_modules:
+        body_poses = ()
         hand_regions = ()
 
     started = time.perf_counter()
@@ -432,6 +455,7 @@ def analyze_packet_components(
         "frame": packet.frame.to_dict(),
         "person_gate": gate_result.to_dict(),
         "person_tracks": [tracklet.to_dict() for tracklet in backend_result.person_tracks],
+        "body_poses": [body_pose.to_dict() for body_pose in body_poses],
         "hand_regions": [hand_region.to_dict() for hand_region in hand_regions],
         "item_container": item_container_result.to_dict(),
         "metadata": {
@@ -446,6 +470,7 @@ def analyze_packet_components(
     return FrameAnalysis(
         payload=payload,
         person_tracks=backend_result.person_tracks,
+        body_poses=tuple(body_poses),
         hand_regions=tuple(hand_regions),
         item_container=item_container_result,
     )
@@ -575,11 +600,15 @@ class DebugVisualizationWriter:
         output_dir: Path,
         output_video: Path,
         enabled: bool,
+        frame_stride: int = 1,
+        save_frame_images: bool = False,
     ) -> None:
         self.input_type = input_type
         self.output_dir = output_dir
         self.output_video = output_video
         self.enabled = enabled
+        self.frame_stride = max(1, frame_stride)
+        self.save_frame_images = save_frame_images
         self._writer: Any | None = None
         self._artifact_path: Path | None = None
         self._video_failed = False
@@ -594,10 +623,14 @@ class DebugVisualizationWriter:
         cv2 = _import_cv2()
         image = packet.image.copy()
         draw_debug_overlay(image, frame_result)
+        wrote_frame_image = False
+        if self.input_type == "video" and self.save_frame_images:
+            self._write_debug_image(cv2, image, packet)
+            wrote_frame_image = True
         if self.input_type == "video" and not self._video_failed:
             if self._writer is None:
                 self.output_video.parent.mkdir(parents=True, exist_ok=True)
-                fps = packet.fps or 30.0
+                fps = self._output_video_fps(packet)
                 fourcc = cv2.VideoWriter_fourcc(*"mp4v")
                 self._writer = cv2.VideoWriter(
                     str(self.output_video),
@@ -614,12 +647,24 @@ class DebugVisualizationWriter:
                     self._artifact_path = self.output_video
             if self._writer is not None:
                 self._writer.write(image)
+                self._artifact_path = self.output_video
                 return
+        if wrote_frame_image:
+            return
+        self._write_debug_image(cv2, image, packet)
+
+    def _write_debug_image(self, cv2: Any, image: Any, packet: FramePacket) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         debug_path = self.output_dir / f"frame_{packet.frame.frame_id:06d}.jpg"
-        if not cv2.imwrite(str(debug_path), image):
+        ok, encoded = cv2.imencode(".jpg", image)
+        if not ok:
             raise ValueError(f"failed to write debug image: {debug_path}")
+        debug_path.write_bytes(encoded.tobytes())
         self._artifact_path = self.output_dir
+
+    def _output_video_fps(self, packet: FramePacket) -> float:
+        source_fps = packet.fps or 30.0
+        return max(1.0, source_fps / self.frame_stride)
 
     def close(self) -> None:
         if self._writer is not None:
@@ -634,6 +679,8 @@ def draw_debug_overlay(image: Any, frame_result: Mapping[str, Any]) -> None:
             _draw_bbox(image, box.get("bbox"), (80, 180, 255), tracklet.get("track_id"))
     for box in frame_result.get("person_gate", {}).get("person_boxes", []):
         _draw_bbox(image, box.get("bbox"), (0, 220, 255), box.get("track_id") or box.get("category"))
+    for body_pose in frame_result.get("body_poses", []):
+        _draw_body_pose(image, body_pose)
     for hand in frame_result.get("hand_regions", []):
         _draw_bbox(image, hand.get("bbox"), (255, 120, 0), f"{hand.get('side')}_hand")
     item_container = frame_result.get("item_container", {})
@@ -669,6 +716,7 @@ def dry_run_payload(config: OfflineConfig) -> dict[str, Any]:
             "frame_stride": config.runtime.frame_stride,
             "max_frames": config.runtime.max_frames,
             "save_debug_visualization": config.runtime.save_debug_visualization,
+            "save_debug_frames": config.runtime.save_debug_frames,
             "backend": config.backend.backend_type,
         },
         "outputs": {
@@ -700,6 +748,50 @@ def _draw_bbox(image: Any, bbox: Sequence[float] | None, color: tuple[int, int, 
             1,
             cv2.LINE_AA,
         )
+
+
+def _draw_body_pose(image: Any, body_pose: Mapping[str, Any]) -> None:
+    cv2 = _import_cv2()
+    keypoints = body_pose.get("keypoints") or []
+    scores = body_pose.get("scores") or []
+    edges = body_pose.get("skeleton_edges") or []
+    metadata = body_pose.get("metadata") or {}
+    min_score = float(metadata.get("min_keypoint_score", 0.2))
+    line_color = (60, 255, 120)
+    point_color = (0, 190, 255)
+    for edge in edges:
+        if not isinstance(edge, Sequence) or len(edge) != 2:
+            continue
+        start_index, end_index = int(edge[0]), int(edge[1])
+        start = _visible_keypoint(keypoints, scores, start_index, min_score)
+        end = _visible_keypoint(keypoints, scores, end_index, min_score)
+        if start is None or end is None:
+            continue
+        cv2.line(image, start, end, line_color, 2, cv2.LINE_AA)
+    for index in range(len(keypoints)):
+        point = _visible_keypoint(keypoints, scores, index, min_score)
+        if point is not None:
+            cv2.circle(image, point, 3, point_color, -1, cv2.LINE_AA)
+
+
+def _visible_keypoint(
+    keypoints: Sequence[Any],
+    scores: Sequence[Any],
+    index: int,
+    min_score: float,
+) -> tuple[int, int] | None:
+    if index >= len(keypoints):
+        return None
+    score = float(scores[index]) if index < len(scores) else 1.0
+    if score < min_score:
+        return None
+    point = keypoints[index]
+    if not isinstance(point, Sequence) or len(point) < 2:
+        return None
+    x, y = int(round(float(point[0]))), int(round(float(point[1])))
+    if x <= 0 and y <= 0:
+        return None
+    return (x, y)
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:

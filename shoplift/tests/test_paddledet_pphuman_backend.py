@@ -36,6 +36,7 @@ class PaddleDetPPHumanBackendConfigTest(unittest.TestCase):
             self.assertTrue(config.mot.enabled)
             self.assertEqual(config.mot.model_dir, root / "models/person_mot")
             self.assertEqual(config.mot.tracker_config, tracker_config)
+            self.assertFalse(config.keypoint.derive_hand_regions)
 
     def test_backend_factory_supports_model_free_and_pphuman(self) -> None:
         self.assertIsInstance(create_vision_backend(BackendOptions()), ModelFreeVisionBackend)
