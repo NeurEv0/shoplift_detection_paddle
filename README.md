@@ -20,12 +20,6 @@
 ```powershell
 conda env create -f environment.yml
 conda activate shoplift-paddle
-```
-
-如果只安装运行时依赖：
-
-```powershell
-pip install -r requirements.txt
 pip install -e src/PaddleDetection-release-2.9
 ```
 

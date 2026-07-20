@@ -1,11 +1,31 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import Any, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
+if "YOLO_CONFIG_DIR" not in os.environ:
+    repo_root = Path(__file__).resolve().parents[2]
+    yolo_config_dir = repo_root / ".ultralytics"
+    yolo_config_dir.mkdir(exist_ok=True)
+    os.environ["YOLO_CONFIG_DIR"] = str(yolo_config_dir)
+
+try:
+    from ultralytics import YOLO
+except ImportError as exc:
+    raise ImportError(
+        "WiLoRHandDetector requires ultralytics. In this repository, "
+        "install it with the rest of the pinned runtime dependencies: "
+        "`pip install -r requirements.txt`."
+    ) from exc
+
+import dill
+import ultralytics.nn.tasks
+
+import torch
 
 ImageInput = Union[str, Path, np.ndarray]
 
@@ -54,18 +74,28 @@ class WiLoRHandDetector:
         checkpoint_path: Union[str, Path] = "./pretrained_models/detector.pt",
         device: Optional[Union[str, object]] = None,
     ) -> None:
-        try:
-            from ultralytics import YOLO
-        except ImportError as exc:
-            raise ImportError(
-                "WiLoRHandDetector requires ultralytics. Install it with "
-                "`pip install ultralytics==8.1.34` or `pip install -r requirements.txt`."
-            ) from exc
 
         self.checkpoint_path = Path(checkpoint_path)
-        self.model = YOLO(str(self.checkpoint_path))
+        self.model = self._load_yolo_model(self.checkpoint_path)
         if device is not None:
             self.to(device)
+
+    @staticmethod
+    def _load_yolo_model(checkpoint_path: Path) -> YOLO:
+        torch.serialization.add_safe_globals(
+            [ultralytics.nn.tasks.PoseModel, dill._dill._load_type]
+        )
+        original_torch_load = torch.load
+
+        def trusted_torch_load(*args: Any, **kwargs: Any) -> Any:
+            kwargs.setdefault("weights_only", False)
+            return original_torch_load(*args, **kwargs)
+
+        torch.load = trusted_torch_load
+        try:
+            return YOLO(str(checkpoint_path))
+        finally:
+            torch.load = original_torch_load
 
     def to(self, device: Union[str, object]) -> "WiLoRHandDetector":
         self.model = self.model.to(device)
@@ -154,3 +184,11 @@ class WiLoRHandDetector:
                 2,
             )
         return output
+
+if __name__ == "__main__":
+    ckpt_path = (
+        Path(__file__).resolve().parents[2] / "models" / "_downloads" / "hand_detector.pt"
+    )
+
+    print("Loading the model...")
+    model = WiLoRHandDetector(checkpoint_path=ckpt_path)
