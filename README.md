@@ -37,7 +37,7 @@ python scripts/check_env.py --config shoplift/configs/env.local.yml
 自检覆盖 Python 版本、`paddle`、GPU 可见性、`cv2`、`ppdet` 路径和关键配置文件。CPU 基础环境可以直接运行不依赖模型权重的单元测试：
 
 ```powershell
-python -m unittest discover -s shoplift/tests
+conda run -n shoplift-paddle python -m pytest shoplift/tests
 ```
 
 ## 离线 CLI
@@ -121,6 +121,7 @@ python -m shoplift.eval.dcsass_eval --config shoplift/configs/pipeline.local.yml
 - 事件示例：`shoplift/events/examples/risk_event.example.json`
 - 契约说明：`shoplift/configs/schema.md`
 - 离线 CLI：`shoplift/cli/offline_analyze.py`
+- 人员属性模型研发：`shoplift/models/person_attribute/`
 
 PaddleDetection 适配器当前支持 P0 输出转换：
 
@@ -135,6 +136,26 @@ PaddleDetection 适配器当前支持 P0 输出转换：
 `object_container` 模块将 `product/backpack/handbag/cart/pocket_region` 等模型类别归一到 `item/bag/basket/clothing_region` 等粗粒度内部类别，输出商品、容器和扩展区域分组结果。
 
 P1 事件引擎当前支持 `bag_concealment`、`clothing_concealment`、`special_container_concealment`、`bulk_pickup_to_bag` 和 `near_body_suspicious`。风险评分由动作类型、容器类型、连续证据、模型置信度、区域风险和正常购物解释共同决定；规则校验会防止单帧接触、低可见度和购物篮/购物车正常放入被误升为高风险。
+
+## 人员属性模型训练
+
+属性模型训练代码位于 `shoplift/models/person_attribute/`，用于训练左右手持商品、左右手可见性、人体朝向和遮挡等级 6 个分类 head。示例配置：
+
+```powershell
+conda run -n shoplift-paddle python -m shoplift.models.person_attribute.train --config shoplift/configs/person_attribute.example.yml
+```
+
+训练数据示例见 `datasets/person_attribute/README.md` 和 `datasets/person_attribute/train.example.csv`。预训练参数放在 `models/pretrained/person_attribute/`，导出后的 inference 模型放在 `models/shoplift/person_attribute/inference/`：
+
+```powershell
+conda run -n shoplift-paddle python -m shoplift.models.person_attribute.export --config shoplift/configs/person_attribute.example.yml --weights outputs/person_attribute/best.pdparams --output-dir models/shoplift/person_attribute/inference --format concat
+```
+
+当前无权重测试已在 `shoplift-paddle` 环境验证：
+
+```powershell
+conda run -n shoplift-paddle python -m pytest shoplift/tests
+```
 
 ## 参考文档
 

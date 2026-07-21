@@ -216,11 +216,13 @@ shoplift/
 
 - [ ] 0.5. 最高优先级：接入商超人员属性预测并替代精确商品检测闭环：
   - [ ] 训练或接入 `docs/supermarket_person_attribute_model.md` 定义的真实人员属性模型，输出左右手 `holding_product`、`holding_object`、`empty`、`uncertain`。
+  - [x] 补充人员属性模型研发代码、backbone wrapper、训练/导出入口和预训练参数路径约定。
   - [x] 新增属性数据结构、后处理模块和 PP-Human 后端 Paddle Inference 接入点。
   - [x] 输出左右手可见性、人体朝向和遮挡等级，并写入逐帧 JSON。
   - [x] 将 `holding_product + hand_roi` 转换为 `proxy_item_region`，明确标记 `is_precise_item_bbox=false`。
   - [x] 以 `person_track_id + hand_side` 聚合 `proxy_item_track_id`，形成代理商品轨迹。
   - [x] 明确忽略 `shoplift/hand_state_classification` 下的模型，不把该路径作为本版本属性模型来源。
+  - [x] 在 `shoplift-paddle` 环境运行无权重全量测试：`conda run -n shoplift-paddle python -m pytest shoplift/tests`，78 项通过。
 - [x] 0. 最高优先级：补齐姿态识别 Module 与 OR/AND 探索基础：
   - [x] 将 PP-Human KeyPoint 输出提升为独立 `body_poses` 结构化证据，而不是只作为手部 ROI 的中间变量。
   - [x] 输出 COCO 17 点关键点、逐点置信度、骨架边、姿态置信度和 `person_track_id` 绑定关系。

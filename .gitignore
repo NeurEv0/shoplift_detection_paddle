@@ -13,8 +13,23 @@ venv/
 
 shoplift/configs/env.local.yml
 shoplift/configs/pipeline.local.yml
+src/PaddleDetection-release-2.9/deploy/fastdeploy/serving/models/
 data/
-models/
+/models/
+!shoplift/models/
+!shoplift/models/**
+/shoplift/models/**/__pycache__/
+/shoplift/models/**/*.py[cod]
+!/models/
+/models/*
+!/models/pretrained/
+/models/pretrained/*
+!/models/pretrained/person_attribute/
+!/models/pretrained/person_attribute/README.md
+!/models/shoplift/
+/models/shoplift/*
+!/models/shoplift/person_attribute/
+!/models/shoplift/person_attribute/README.md
 outputs/
 *.mp4
 *.avi
@@ -25,4 +40,9 @@ outputs/
 *.pdiparams
 *.onnx
 
-datasets/
+/datasets/
+!/datasets/
+/datasets/*
+!/datasets/person_attribute/
+!/datasets/person_attribute/README.md
+!/datasets/person_attribute/train.example.csv

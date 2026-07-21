@@ -425,6 +425,7 @@ stateDiagram-v2
 | 属性数据结构 | 已实现 `AttributePrediction`、`PersonAttribute`、`ProxyItemRegion` | `shoplift/core/types.py` |
 | 属性后处理 | 已实现可见性一致性修正、softmax/label 解析 | `shoplift/vision/person_attribute.py` |
 | 代理商品区域 | 已实现 `holding_product + HandRegion -> ProxyItemRegion` | `shoplift/vision/person_attribute.py` |
+| 模型研发代码 | 已补充 backbone wrapper、多任务 head、dataset、train、export | `shoplift/models/person_attribute/` |
 | 离线链路 | 已输出 `person_attributes`、`proxy_item_regions`，并将代理区域送入现有关联器 | `shoplift/cli/offline_analyze.py` |
 | PP-Human 后端 | 已预留 Paddle Inference 属性模型入口 | `shoplift/backends/paddledet_pphuman_backend.py` |
 | 可视化 | 已绘制代理商品区域 | `shoplift/cli/offline_analyze.py` |
@@ -460,6 +461,78 @@ modules:
 - 本地目录必须包含 `inference.pdmodel` + `inference.pdiparams`，或 `model.pdmodel` + `model.pdiparams`。
 - 输入为人员 crop batch，默认 NCHW RGB，尺寸 `192x256`，使用 ImageNet mean/std 归一化。
 - 输出可为 6 个 head，也可为一个拼接的 21 维向量，顺序为：左手状态 4、左手可见性 3、右手状态 4、右手可见性 3、人体朝向 4、遮挡等级 3。
+
+### 7.2 训练代码与预训练参数
+
+模型研发代码路径：
+
+```text
+shoplift/models/person_attribute/
+├── labels.py      # 6 个 head 的标签定义与 loss 权重
+├── backbones.py   # PPHGNetV2 / LCNet / tiny_cnn backbone wrapper
+├── model.py       # backbone + shared embedding + 6 个分类 head
+├── dataset.py     # CSV/JSONL 标注读取与 person crop 预处理
+├── train.py       # 训练入口
+└── export.py      # Paddle Inference 导出入口
+```
+
+推荐 backbone：
+
+| Backbone | 配置 | 适用场景 |
+|---|---|---|
+| `pphgnetv2` `S` | 默认推荐 | 精度优先，后续可接 PaddleDetection/PaddleClas 预训练参数 |
+| `pphgnetv2` `N` | 更轻量 | 数据量较小或 CPU/GPU 资源有限 |
+| `lcnet` `1.0` | 轻量基线 | 推理速度优先 |
+| `tiny_cnn` | smoke test | 验证训练链路，不建议作为正式模型 |
+
+预训练参数放置路径：
+
+```text
+models/pretrained/person_attribute/
+├── pphgnetv2_s_pretrained.pdparams
+├── pphgnetv2_n_pretrained.pdparams
+└── lcnet_1_0_pretrained.pdparams
+```
+
+示例配置：
+
+```yaml
+backbone:
+  name: pphgnetv2
+  arch: S
+  paddledetection_root: ./src/PaddleDetection-release-2.9
+  pretrained: ./models/pretrained/person_attribute/pphgnetv2_s_pretrained.pdparams
+```
+
+训练命令：
+
+```powershell
+conda run -n shoplift-paddle python -m shoplift.models.person_attribute.train --config shoplift/configs/person_attribute.example.yml
+```
+
+导出命令：
+
+```powershell
+conda run -n shoplift-paddle python -m shoplift.models.person_attribute.export --config shoplift/configs/person_attribute.example.yml --weights outputs/person_attribute/best.pdparams --output-dir models/shoplift/person_attribute/inference --format concat
+```
+
+导出后在离线推理配置中启用：
+
+```yaml
+backend:
+  type: paddledet_pphuman
+  person_attribute:
+    enabled: true
+    model_dir: ./models/shoplift/person_attribute/inference
+```
+
+框架级验证命令：
+
+```powershell
+conda run -n shoplift-paddle python -m pytest shoplift/tests
+```
+
+最近一次验证结果：在 `shoplift-paddle` 环境下收集 78 个测试，全部通过。该验证不包含真实属性模型权重训练，只覆盖模型代码脚手架、配置解析、属性后处理、proxy item 生成、PP-Human 后端接入点和现有离线/事件链路回归。
 
 ## 8. 后处理规则
 

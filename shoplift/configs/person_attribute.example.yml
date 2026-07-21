@@ -1,0 +1,36 @@
+output_dir: ./outputs/person_attribute
+device: cpu
+seed: 2026
+
+backbone:
+  # Recommended first choice: pphgnetv2 S. Alternatives: pphgnetv2 N/M, lcnet 1.0, tiny_cnn.
+  name: pphgnetv2
+  arch: S
+  paddledetection_root: ./src/PaddleDetection-release-2.9
+  # Put downloaded Paddle/PaddleDetection/PaddleClas pretrained weights here.
+  # The training script loads matching parameters non-strictly, so classifier
+  # heads can be new while backbone weights are reused.
+  pretrained: ./models/pretrained/person_attribute/pphgnetv2_s_pretrained.pdparams
+  freeze_backbone_epochs: 0
+
+data:
+  image_root: ./datasets/person_attribute/images
+  train_annotation: ./datasets/person_attribute/train.csv
+  val_annotation: ./datasets/person_attribute/val.csv
+  image_width: 192
+  image_height: 256
+  batch_size: 32
+  num_workers: 0
+
+optimizer:
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  epochs: 30
+  warmup_epochs: 1
+
+export:
+  output_dir: ./models/shoplift/person_attribute/inference
+  # concat exports one 21-dim output, directly supported by paddledet_pphuman_backend.
+  # six_heads exports a dict-like static model when Paddle supports named outputs.
+  output_format: concat
+

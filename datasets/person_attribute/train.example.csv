@@ -1,0 +1,5 @@
+image_path,left_hand_state,left_hand_visibility,right_hand_state,right_hand_visibility,body_orientation,occlusion_level
+train/person_000001.jpg,holding_product,clear,empty,clear,side,light
+train/person_000002.jpg,empty,clear,holding_object,clear,front,none
+train/person_000003.jpg,uncertain,not_judgable,uncertain,not_judgable,back,heavy
+

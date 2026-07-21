@@ -129,6 +129,36 @@ SKU-110K 是商超/零售货架密集商品检测数据集，更适合商品/货
 - 保留 DCSASS / UCF-Crime 中的 shoplifting/stealing 类别做端到端回归。
 - 不把它们作为容器检测模型的训练来源。
 
+### 3.8 中文/国内相关数据集与资源
+
+中文/国内资源可以作为补充，但整体优先级低于 Open Images / LVIS / Objects365 和真实门店自建数据。主要原因是：公开可验证的数据集多集中在商品/货架识别，较少覆盖购物篮、购物车、个人包袋、结账袋、婴儿车等容器框；偷窃行为类资源常见于网盘或课程包，标注粒度、授权和可复现性不稳定。
+
+| 资源 | 类型 | 可用价值 | 不足 |
+|---|---|---|---|
+| Locount | 国内研究团队发布的零售场景定位与计数数据集 | 商超/零售场景、货架遮挡严重、商品密集，可用于商品/货架上下文和密集检测参考 | 目标是商品定位计数，不是容器检测；通常不覆盖包袋/购物车/结账容器 |
+| RP2K / 品览零售商品数据 | 真实门店采集的细粒度商品识别数据 | 真实零售货架域、SKU/商品属性丰富，可辅助人员属性模型中的 `holding_product` 语义 | 主要面向商品识别/分类，不是 CCTV 行为和容器框数据 |
+| Products-10K / 京东商品图像类数据 | 商品识别数据 | 商品外观预训练、商品 crop 分类、货架商品辅助 | 电商图/商品图为主，域与监控视频差异大；不覆盖容器 |
+| 百度 AI Studio / EasyDL 商品检测相关样例 | 产业平台与商品检测资源 | Paddle 生态友好，适合快速验证商品检测/货架陈列能力 | 多为平台能力或样例，不一定能直接获得开放数据和可复现实验 |
+| 安全帽/头盔检测中文数据 | 通用工业安全检测数据 | 可补 `helmet` 外观，尤其是头盔类特殊容器 | 大多是工地安全帽视角，与商超中摩托车头盔/手持头盔差异明显 |
+| 行人背包/手提包监控类数据 | 行人属性、重识别或安防数据 | 可辅助 `backpack/bag/handbag` 的人身携带状态 | 很多只给属性标签，不给包袋框；授权和下载质量差异大 |
+| 中文偷窃/商店盗窃 YOLO 小数据包 | 行为或检测混合数据 | 可做人工浏览、场景灵感或端到端 smoke 样本 | 通常缺少容器框、手部属性、事件起止和清晰授权，不建议进训练主集 |
+
+推荐使用方式：
+
+- `Locount/RP2K/Products-10K` 只作为商品和货架上下文补充，不替代容器检测数据。
+- 若需要 `helmet` 类，可少量引入中文安全帽/头盔检测数据，但必须加入真实商超头盔样本校准。
+- 对中文偷窃视频包只做人工复核样本或端到端 smoke eval；进入训练集前必须重新标注容器框、人员框、手部 ROI、事件时间段和授权信息。
+- 所有国内平台数据都要先确认 license、商用权限、是否允许再分发、是否允许训练衍生模型。
+
+中文资源的优先级建议：
+
+| 优先级 | 数据 | 当前项目用途 |
+|---|---|---|
+| 中 | Locount、RP2K | 商品/货架上下文，辅助 `holding_product` 和扫货/批量拿取研究 |
+| 中低 | 安全帽/头盔检测数据 | 补特殊容器 `helmet`，需要真实商超再校准 |
+| 低 | AI Studio/EasyDL 商品检测样例 | Paddle 生态参考，适合方法验证 |
+| 低 | 中文偷窃 YOLO/视频小数据包 | 只做候选复核或 smoke eval，不作为主训练集 |
+
 ## 4. 模型架构与预训练参数
 
 ### 4.1 PaddleDetection 内可落地模型
@@ -265,6 +295,10 @@ SKU-110K 是商超/零售货架密集商品检测数据集，更适合商品/货
 - SKU-110K repository: https://github.com/eg4000/SKU110K_CVPR19
 - RPC dataset: https://rpc-dataset.github.io/
 - MVTec D2S dataset: https://www.mvtec.com/company/research/datasets/mvtec-d2s
+- Locount paper: https://ojs.aaai.org/index.php/AAAI/article/view/16178
+- Locount dataset news: https://www.cas.cn/cm/202012/t20201217_4771052.shtml
+- RP2K dataset summary: https://paperswithcode.com/paper/rp2k-a-large-scale-retail-product-dataset
+- Baidu EasyDL retail product detection: https://ai.baidu.com/support/news?action=detail&id=965
 - GroundingDINO: https://github.com/IDEA-Research/GroundingDINO
 - YOLO-World: https://github.com/AILab-CVC/YOLO-World
 - Ultralytics YOLO documentation: https://docs.ultralytics.com/
