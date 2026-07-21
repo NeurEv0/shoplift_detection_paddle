@@ -55,6 +55,43 @@ class PoseHandTest(unittest.TestCase):
         self.assertEqual({hand.hand_track_id for hand in hands}, {"hand-person-11-left", "hand-person-11-right"})
         self.assertTrue(all(len(hand.source_keypoints) == 2 for hand in hands))
         self.assertTrue(hands[0].bbox[0] <= keypoints[9][0] <= hands[0].bbox[2])
+        self.assertEqual({hand.metadata["crop_strategy"] for hand in hands}, {"forearm_guided_axis_aligned"})
+
+    def test_forearm_guided_crop_extends_center_past_wrist(self) -> None:
+        keypoints = [[0.0, 0.0] for _ in range(17)]
+        scores = [0.0 for _ in range(17)]
+        keypoints[8] = [100.0, 100.0]
+        keypoints[10] = [140.0, 100.0]
+        scores[8] = 0.9
+        scores[10] = 0.9
+        poses = build_person_poses([keypoints], [scores], [self.tracklet])
+
+        hands = HandRegionExtractor(
+            min_keypoint_score=0.2,
+            forearm_extension_ratio=0.5,
+            hand_side_from_forearm=1.0,
+        ).extract(self.frame, poses)
+
+        self.assertEqual(len(hands), 1)
+        hand = hands[0]
+        self.assertEqual(hand.side, "right")
+        self.assertEqual(hand.metadata["crop_center"], (160.0, 100.0))
+        self.assertEqual(hand.metadata["forearm_vector"], (40.0, 0.0))
+        self.assertEqual(hand.metadata["forearm_length"], 40.0)
+        self.assertEqual(hand.metadata["crop_side_length"], 40.0)
+        self.assertEqual(hand.bbox, (140.0, 80.0, 180.0, 120.0))
+
+    def test_single_pose_score_is_used_for_forearm_keypoints(self) -> None:
+        keypoints = [[0.0, 0.0] for _ in range(17)]
+        keypoints[7] = [100.0, 100.0]
+        keypoints[9] = [100.0, 130.0]
+        poses = build_person_poses([keypoints], [[0.8]], [self.tracklet])
+
+        hands = HandRegionExtractor(min_keypoint_score=0.2).extract(self.frame, poses)
+
+        self.assertEqual(len(hands), 1)
+        self.assertEqual(hands[0].metadata["crop_strategy"], "forearm_guided_axis_aligned")
+        self.assertEqual(hands[0].metadata["elbow_score"], 0.8)
 
     def test_low_confidence_wrist_is_filtered(self) -> None:
         keypoints = [[0.0, 0.0] for _ in range(17)]
@@ -97,6 +134,7 @@ class PoseHandTest(unittest.TestCase):
         self.assertEqual(hands[0].side, "left")
         self.assertGreaterEqual(hands[0].bbox[0], 0.0)
         self.assertEqual(len(hands[0].source_keypoints), 1)
+        self.assertEqual(hands[0].metadata["crop_strategy"], "wrist_fallback_axis_aligned")
 
 
 if __name__ == "__main__":

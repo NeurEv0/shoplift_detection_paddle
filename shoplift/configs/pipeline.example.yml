@@ -30,6 +30,14 @@ backend:
     threshold: 0.2
     batch_size: 8
     derive_hand_regions: false
+  person_attribute:
+    enabled: false
+    model_dir: ./models/shoplift/person_attribute
+    threshold: 0.5
+    batch_size: 8
+    image_width: 192
+    image_height: 256
+    min_holding_product_score: 0.5
   item_container:
     enabled: false
     model_dir: ./models/shoplift/item_container
@@ -47,6 +55,11 @@ modules:
   pose_hand:
     enabled: false
     min_keypoint_score: 0.2
+  person_attribute:
+    enabled: true
+    min_holding_product_score: 0.5
+  proxy_item:
+    enabled: true
   item_container:
     enabled: true
     min_score: 0.35

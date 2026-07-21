@@ -15,6 +15,8 @@ re-exported from `shoplift/tracking/track_types.py`.
 | `Tracklet` | Time-ordered detections belonging to one tracked entity. |
 | `BodyPose` | Full-body keypoints, scores, skeleton edges, pose score, and bound person track. |
 | `HandRegion` | Hand ROI tied to a person track and left/right side. |
+| `PersonAttribute` | Shoplift-specific left/right hand state, visibility, orientation, and occlusion attributes. |
+| `ProxyItemRegion` | Held-product location proxy generated from `holding_product` plus hand ROI. |
 | `RelationEvidence` | Explainable hand-item-container relation evidence. |
 | `RiskEvent` | Reviewable risk event emitted to downstream systems. |
 
@@ -54,10 +56,11 @@ evidence instead of treating them only as a hand ROI intermediate.
 Each `BodyPose` contains all keypoints, per-keypoint scores, skeleton edges,
 pose-level score, optional person bbox, and visibility metadata.
 
-Current default policy is pose-only. `pose_recognition` and `pose_hand` are
-treated as OR evidence sources, but `pose_hand` is disabled by default because
-manual review marked hand ROI as redundant. Pose wrist keypoints can still feed
-contact evidence without emitting `HandRegion` objects.
+`pose_recognition` and `pose_hand` are treated as complementary evidence
+sources. Pose remains the primary structured body evidence, and configurations
+can enable `pose_hand` plus backend `keypoint.derive_hand_regions` to emit
+forearm-guided hand ROI at the same time. `hand_item_contact` evidence is
+emitted only from `HandRegion` ROI, not directly from pose wrist keypoints.
 
 ## Pose Hand
 
@@ -72,9 +75,15 @@ requiring Paddle or NumPy at import time.
 
 The P0 extractor uses COCO indices `left_elbow=7`, `right_elbow=8`,
 `left_wrist=9`, and `right_wrist=10`. Wrist keypoints below
-`min_keypoint_score` are filtered. When elbow confidence is high, the hand ROI
-size is based on forearm length; otherwise it falls back to the person bbox
-when available.
+`min_keypoint_score` are filtered, and `(0, 0)` placeholder keypoints are
+treated as missing. When elbow confidence is high, the hand ROI uses
+forearm-guided axis-aligned cropping: the center is extended from the wrist
+along the elbow-to-wrist vector by `forearm_extension_ratio` (default `0.4`),
+and the square side length is `hand_side_from_forearm * forearm_length`
+(default `1.1`). The emitted `HandRegion.metadata` records the crop center,
+forearm vector, forearm length, angle, side length, and strategy name. If the
+elbow is unavailable or too close to the wrist, extraction falls back to a
+wrist-centered axis-aligned box sized from the person bbox when available.
 
 ## Item And Container Detection
 
@@ -108,7 +117,9 @@ Required top-level fields:
 | `person_gate` | `PersonGateResult`, including skip/trigger decision and person track ids. |
 | `person_tracks` | Person `Tracklet` entries available for this frame. |
 | `body_poses` | Bound `BodyPose` entries available for this frame. |
-| `hand_regions` | Bound `HandRegion` entries available for this frame; empty by default in pose-only mode. |
+| `hand_regions` | Bound `HandRegion` entries available for this frame; empty when `pose_hand` or backend hand-region derivation is disabled. |
+| `person_attributes` | Bound `PersonAttribute` entries. When no trained model is configured, the offline pipeline may emit conservative rule-based defaults. |
+| `proxy_item_regions` | Held-product proxy regions generated from `person_attributes` and `hand_regions`; each entry has `is_precise_item_bbox=false`. |
 | `item_container` | Grouped item/container/extension-region detections. |
 | `metadata` | Input type, source frame id, source URI, backend id, and module timing metrics. |
 
@@ -117,13 +128,39 @@ backend emits empty detections while exercising frame IO, person gate decisions,
 JSONL output, event-engine wiring, and debug visualization generation.
 
 The optional `paddledet_pphuman` backend wraps PaddleDetection deploy
-predictors for PP-Human MOT, optional keypoint-to-body-pose/hand ROI, and optional
-item/container detection. It requires local exported model directories and does
-not auto-download models during offline analysis.
+predictors for PP-Human MOT, optional keypoint-to-body-pose/hand ROI, optional
+person-attribute prediction, and optional item/container detection. It requires
+local exported model directories and does not auto-download models during
+offline analysis.
+
+`person_attribute.enabled=true` expects a local exported Paddle inference model
+with either six output heads or one concatenated 21-dimensional output:
+
+| Segment | Size | Field |
+|---|---:|---|
+| 0 | 4 | `left_hand_state` |
+| 1 | 3 | `left_hand_visibility` |
+| 2 | 4 | `right_hand_state` |
+| 3 | 3 | `right_hand_visibility` |
+| 4 | 4 | `body_orientation` |
+| 5 | 3 | `occlusion_level` |
+
+If a hand is predicted as `holding_product` and the matching `HandRegion`
+exists, the pipeline creates a `ProxyItemRegion` and also exposes it to the
+existing relation associator as a `DetectionBox(category="item")` with:
+
+```json
+{
+  "source": "person_attribute_hand_roi",
+  "is_proxy_item_region": true,
+  "is_precise_item_bbox": false
+}
+```
 
 `events.json` is generated by `ShopliftingEventEngine` from each frame's
 `AssociationFrame`. It remains empty when relation evidence is insufficient or
-when the configured backend does not provide item/container evidence.
+when the configured backend does not provide proxy item or item/container
+evidence.
 
 ## Event JSON Schema
 

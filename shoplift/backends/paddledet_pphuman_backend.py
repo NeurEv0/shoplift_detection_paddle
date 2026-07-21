@@ -16,7 +16,12 @@ from shoplift.adapters.paddledet_adapter import (
     PaddleDetectionAdapter,
     SHOPLIFT_CLASS_ID_TO_CATEGORY,
 )
-from shoplift.core.types import BodyPose, DetectionBox, Tracklet
+from shoplift.core.types import BodyPose, DetectionBox, PersonAttribute, Tracklet
+from shoplift.vision.person_attribute import (
+    PersonAttributeConfig,
+    PersonAttributePostProcessor,
+    build_proxy_item_regions,
+)
 
 if TYPE_CHECKING:
     from shoplift.cli.offline_analyze import FramePacket, VisionBackendResult
@@ -61,6 +66,20 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _softmax(values: Any) -> list[float]:
+    import math
+
+    sequence = [float(value) for value in values]
+    if not sequence:
+        return []
+    max_value = max(sequence)
+    exps = [math.exp(value - max_value) for value in sequence]
+    total = sum(exps)
+    if total <= 0.0:
+        return [1.0 / len(sequence) for _ in sequence]
+    return [value / total for value in exps]
+
+
 def _is_url(value: str) -> bool:
     lowered = value.lower()
     return lowered.startswith("http://") or lowered.startswith("https://")
@@ -100,6 +119,17 @@ class PaddleDetModuleConfig:
 
 
 @dataclass(frozen=True)
+class PaddleDetPersonAttributeConfig(PaddleDetModuleConfig):
+    """Person-attribute predictor configuration."""
+
+    image_width: int = 192
+    image_height: int = 256
+    mean: tuple[float, float, float] = (0.485, 0.456, 0.406)
+    std: tuple[float, float, float] = (0.229, 0.224, 0.225)
+    min_holding_product_score: float = 0.5
+
+
+@dataclass(frozen=True)
 class PaddleDetMOTConfig(PaddleDetModuleConfig):
     """PP-Human MOT module configuration."""
 
@@ -125,6 +155,7 @@ class PaddleDetPPHumanBackendConfig:
     output_dir: Path = Path("outputs/paddledet")
     mot: PaddleDetMOTConfig = field(default_factory=PaddleDetMOTConfig)
     keypoint: PaddleDetModuleConfig = field(default_factory=PaddleDetModuleConfig)
+    person_attribute: PaddleDetPersonAttributeConfig = field(default_factory=PaddleDetPersonAttributeConfig)
     item_container: PaddleDetModuleConfig = field(default_factory=PaddleDetModuleConfig)
     item_class_id_to_category: Mapping[int, str] = field(default_factory=lambda: dict(SHOPLIFT_CLASS_ID_TO_CATEGORY))
 
@@ -144,6 +175,7 @@ class PaddleDetPPHumanBackendConfig:
 
         mot_mapping = _mapping_at(mapping, "mot")
         kpt_mapping = _mapping_at(mapping, "keypoint")
+        attr_mapping = _mapping_at(mapping, "person_attribute")
         item_mapping = _mapping_at(mapping, "item_container")
         pphuman_mot = _mapping_at(pphuman_cfg, "MOT")
         pphuman_kpt = _mapping_at(pphuman_cfg, "KPT")
@@ -182,6 +214,15 @@ class PaddleDetPPHumanBackendConfig:
                 threshold=float(kpt_mapping.get("threshold", pphuman_cfg.get("kpt_thresh", 0.2))),
                 derive_hand_regions=_as_bool(kpt_mapping.get("derive_hand_regions"), False),
             ),
+            person_attribute=PaddleDetPersonAttributeConfig(
+                enabled=_as_bool(attr_mapping.get("enabled"), False),
+                model_dir=_resolve_path(_as_path(attr_mapping.get("model_dir")), project_root=project_root),
+                batch_size=int(attr_mapping.get("batch_size", 8)),
+                threshold=float(attr_mapping.get("threshold", 0.5)),
+                image_width=int(attr_mapping.get("image_width", 192)),
+                image_height=int(attr_mapping.get("image_height", 256)),
+                min_holding_product_score=float(attr_mapping.get("min_holding_product_score", 0.5)),
+            ),
             item_container=PaddleDetModuleConfig(
                 enabled=_as_bool(item_mapping.get("enabled"), False),
                 model_dir=_resolve_path(_as_path(item_mapping.get("model_dir")), project_root=project_root),
@@ -206,6 +247,9 @@ class PaddleDetPPHumanBackend:
         )
         self._mot_predictor: Any | None = None
         self._keypoint_predictor: Any | None = None
+        self._attribute_predictor: Any | None = None
+        self._attribute_input_name: str | None = None
+        self._attribute_output_names: list[str] = []
         self._item_detector: Any | None = None
         self._crop_image_with_mot: Any | None = None
         self._translate_to_ori_images: Any | None = None
@@ -218,6 +262,8 @@ class PaddleDetPPHumanBackend:
         person_tracks: tuple[Tracklet, ...] = ()
         body_poses: tuple[BodyPose, ...] = ()
         hand_regions = ()
+        person_attributes: tuple[PersonAttribute, ...] = ()
+        proxy_item_regions = ()
         detections: tuple[DetectionBox, ...] = ()
 
         frame_rgb = self._bgr_to_rgb(packet.image)
@@ -225,6 +271,7 @@ class PaddleDetPPHumanBackend:
             "backend": "paddledet_pphuman",
             "mot_enabled": self.config.mot.enabled,
             "keypoint_enabled": self.config.keypoint.enabled,
+            "person_attribute_enabled": self.config.person_attribute.enabled,
             "item_container_enabled": self.config.item_container.enabled,
         }
 
@@ -261,6 +308,26 @@ class PaddleDetPPHumanBackend:
             metadata["body_pose_count"] = 0
             metadata["hand_region_count"] = 0
 
+        if self._attribute_predictor is not None and person_tracks:
+            person_attributes = self._predict_person_attributes(
+                frame_rgb,
+                packet,
+                person_tracks,
+            )
+            proxy_item_regions = build_proxy_item_regions(
+                frame=packet.frame,
+                person_attributes=person_attributes,
+                hand_regions=hand_regions,
+                config=PersonAttributeConfig(
+                    min_holding_product_score=self.config.person_attribute.min_holding_product_score
+                ),
+            )
+            metadata["person_attribute_count"] = len(person_attributes)
+            metadata["proxy_item_region_count"] = len(proxy_item_regions)
+        elif self.config.person_attribute.enabled:
+            metadata["person_attribute_count"] = 0
+            metadata["proxy_item_region_count"] = 0
+
         if self._item_detector is not None:
             det_result = self._item_detector.predict_image([frame_rgb], visual=False)
             detections = self.item_adapter.convert_detection_result(
@@ -277,6 +344,8 @@ class PaddleDetPPHumanBackend:
             person_tracks=person_tracks,
             body_poses=body_poses,
             hand_regions=hand_regions,
+            person_attributes=person_attributes,
+            proxy_item_regions=proxy_item_regions,
             metadata=metadata,
         )
 
@@ -286,6 +355,8 @@ class PaddleDetPPHumanBackend:
             self._mot_predictor = self._create_mot_predictor()
         if self.config.keypoint.enabled and self._keypoint_predictor is None:
             self._keypoint_predictor = self._create_keypoint_predictor()
+        if self.config.person_attribute.enabled and self._attribute_predictor is None:
+            self._create_attribute_predictor()
         if self.config.item_container.enabled and self._item_detector is None:
             self._item_detector = self._create_item_detector()
         if self.config.keypoint.enabled and self._crop_image_with_mot is None:
@@ -393,6 +464,43 @@ class PaddleDetPPHumanBackend:
             threshold=self.config.item_container.threshold,
         )
 
+    def _create_attribute_predictor(self) -> None:
+        try:
+            import paddle
+            from paddle.inference import Config, create_predictor
+        except ImportError as exc:
+            raise RuntimeError(
+                f"Paddle person-attribute inference dependencies are not importable: {exc}"
+            ) from exc
+
+        paddle.enable_static()
+        if self.config.person_attribute.model_dir is None:
+            raise RuntimeError("PersonAttribute model_dir is required when the module is enabled")
+        model_dir = Path(self.config.person_attribute.model_dir)
+        if not model_dir.exists() or not model_dir.is_dir():
+            raise RuntimeError(f"PersonAttribute model_dir must be a local directory: {model_dir}")
+        model_file = model_dir / "inference.pdmodel"
+        params_file = model_dir / "inference.pdiparams"
+        if not model_file.exists() or not params_file.exists():
+            model_file = model_dir / "model.pdmodel"
+            params_file = model_dir / "model.pdiparams"
+        if not model_file.exists() or not params_file.exists():
+            raise RuntimeError(
+                f"PersonAttribute model_dir must contain inference/model pdmodel and pdiparams: {model_dir}"
+            )
+        config = Config(str(model_file), str(params_file))
+        config.disable_glog_info()
+        if self.config.device.lower() == "gpu":
+            config.enable_use_gpu(100, 0)
+        else:
+            config.disable_gpu()
+            config.set_cpu_math_library_num_threads(self.config.cpu_threads)
+            if self.config.enable_mkldnn:
+                config.enable_mkldnn()
+        self._attribute_predictor = create_predictor(config)
+        self._attribute_input_name = self._attribute_predictor.get_input_names()[0]
+        self._attribute_output_names = list(self._attribute_predictor.get_output_names())
+
     def _predict_keypoints(
         self,
         frame_rgb: Any,
@@ -427,6 +535,105 @@ class PaddleDetPPHumanBackend:
             "bbox": ori_bboxes,
             "metadata": {"source_frame_id": packet.source_frame_id},
         }
+
+    def _predict_person_attributes(
+        self,
+        frame_rgb: Any,
+        packet: "FramePacket",
+        person_tracks: tuple[Tracklet, ...],
+    ) -> tuple[PersonAttribute, ...]:
+        if self._attribute_predictor is None or self._attribute_input_name is None:
+            return ()
+        crops = []
+        crop_tracks: list[Tracklet] = []
+        for track in person_tracks:
+            if not track.boxes:
+                continue
+            crop = self._crop_and_preprocess_person(frame_rgb, track.boxes[-1].bbox)
+            if crop is None:
+                continue
+            crops.append(crop)
+            crop_tracks.append(track)
+        if not crops:
+            return ()
+
+        import numpy as np
+
+        batch = np.stack(crops).astype("float32")
+        input_handle = self._attribute_predictor.get_input_handle(self._attribute_input_name)
+        input_handle.copy_from_cpu(batch)
+        self._attribute_predictor.run()
+        outputs = [
+            self._attribute_predictor.get_output_handle(name).copy_to_cpu()
+            for name in self._attribute_output_names
+        ]
+        postprocessor = PersonAttributePostProcessor(
+            PersonAttributeConfig(
+                min_holding_product_score=self.config.person_attribute.min_holding_product_score
+            )
+        )
+        attributes: list[PersonAttribute] = []
+        for index, track in enumerate(crop_tracks):
+            raw = self._raw_attribute_from_outputs(outputs, index)
+            raw["source"] = "paddle_person_attribute"
+            attributes.append(
+                postprocessor.build_attribute(
+                    frame=packet.frame,
+                    person_track=track,
+                    raw=raw,
+                )
+            )
+        return tuple(attributes)
+
+    def _crop_and_preprocess_person(self, frame_rgb: Any, bbox: tuple[float, float, float, float]) -> Any | None:
+        import cv2
+        import numpy as np
+
+        height, width = frame_rgb.shape[:2]
+        x1, y1, x2, y2 = (int(round(value)) for value in bbox)
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(width, x2), min(height, y2)
+        if x2 <= x1 or y2 <= y1:
+            return None
+        crop = frame_rgb[y1:y2, x1:x2]
+        crop = cv2.resize(
+            crop,
+            (self.config.person_attribute.image_width, self.config.person_attribute.image_height),
+        )
+        crop = crop.astype("float32") / 255.0
+        mean = np.array(self.config.person_attribute.mean, dtype="float32").reshape(1, 1, 3)
+        std = np.array(self.config.person_attribute.std, dtype="float32").reshape(1, 1, 3)
+        crop = (crop - mean) / std
+        return crop.transpose(2, 0, 1)
+
+    @staticmethod
+    def _raw_attribute_from_outputs(outputs: list[Any], index: int) -> dict[str, Any]:
+        names = (
+            "left_hand_state",
+            "left_hand_visibility",
+            "right_hand_state",
+            "right_hand_visibility",
+            "body_orientation",
+            "occlusion_level",
+        )
+        sizes = (4, 3, 4, 3, 4, 3)
+        raw: dict[str, Any] = {}
+        if len(outputs) == 1 and index < len(outputs[0]):
+            vector = (
+                outputs[0][index].tolist()
+                if hasattr(outputs[0][index], "tolist")
+                else list(outputs[0][index])
+            )
+            offset = 0
+            for name, size in zip(names, sizes):
+                raw[name] = _softmax(vector[offset : offset + size])
+                offset += size
+            return raw
+        for name, output in zip(names, outputs):
+            if index < len(output):
+                vector = output[index].tolist() if hasattr(output[index], "tolist") else output[index]
+                raw[name] = _softmax(vector)
+        return raw
 
     @staticmethod
     def _mot_rows_from_tracks(person_tracks: tuple[Tracklet, ...]) -> list[list[float]]:
@@ -463,6 +670,7 @@ class PaddleDetPPHumanBackend:
 __all__ = [
     "PaddleDetModuleConfig",
     "PaddleDetMOTConfig",
+    "PaddleDetPersonAttributeConfig",
     "PaddleDetPPHumanBackend",
     "PaddleDetPPHumanBackendConfig",
 ]

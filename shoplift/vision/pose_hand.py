@@ -42,8 +42,11 @@ class HandRegionExtractor:
 
     min_keypoint_score: float = 0.2
     hand_min_size_px: float = 18.0
-    hand_scale_from_forearm: float = 0.55
+    forearm_extension_ratio: float = 0.4
+    hand_side_from_forearm: float = 1.1
+    hand_scale_from_forearm: float | None = None
     hand_scale_from_person: float = 0.08
+    min_forearm_length_px: float = 8.0
     keypoint_indices: Mapping[str, int] = field(default_factory=lambda: dict(COCO_KEYPOINT_INDICES))
     source: str = "pose_hand"
 
@@ -93,13 +96,13 @@ class HandRegionExtractor:
 
         elbow = _point_at(person_pose.keypoints, elbow_index)
         elbow_score = _score_at(person_pose.scores, elbow_index, default=0.0)
-        radius = self._hand_radius(wrist, elbow, elbow_score, person_pose.person_bbox)
+        crop = self._hand_crop(wrist, elbow, elbow_score, person_pose.person_bbox)
         bbox = _clip_bbox(
             (
-                wrist[0] - radius,
-                wrist[1] - radius,
-                wrist[0] + radius,
-                wrist[1] + radius,
+                crop.center[0] - crop.side_length / 2.0,
+                crop.center[1] - crop.side_length / 2.0,
+                crop.center[0] + crop.side_length / 2.0,
+                crop.center[1] + crop.side_length / 2.0,
             ),
             frame,
         )
@@ -122,23 +125,69 @@ class HandRegionExtractor:
                 "wrist_score": wrist_score,
                 "elbow_index": elbow_index,
                 "elbow_score": elbow_score,
+                "crop_strategy": crop.strategy,
+                "crop_center": crop.center,
+                "crop_side_length": crop.side_length,
+                "forearm_vector": crop.forearm_vector,
+                "forearm_length": crop.forearm_length,
+                "forearm_angle_deg": crop.angle_deg,
+                "axis_aligned": True,
+                "forearm_extension_ratio": self.forearm_extension_ratio,
+                "hand_side_from_forearm": self._effective_hand_side_from_forearm(),
             },
         )
 
-    def _hand_radius(
+    def _hand_crop(
         self,
         wrist: Point,
         elbow: Point | None,
         elbow_score: float,
         person_bbox: BBox | None,
-    ) -> float:
-        radius = self.hand_min_size_px
+    ) -> "_HandCrop":
         if elbow is not None and elbow_score >= self.min_keypoint_score:
-            radius = max(radius, math.dist(wrist, elbow) * self.hand_scale_from_forearm)
-        elif person_bbox is not None:
+            vector = (wrist[0] - elbow[0], wrist[1] - elbow[1])
+            forearm_length = math.hypot(vector[0], vector[1])
+            if forearm_length >= self.min_forearm_length_px:
+                center = (
+                    wrist[0] + vector[0] * self.forearm_extension_ratio,
+                    wrist[1] + vector[1] * self.forearm_extension_ratio,
+                )
+                return _HandCrop(
+                    center=center,
+                    side_length=max(self.hand_min_size_px, forearm_length * self._effective_hand_side_from_forearm()),
+                    strategy="forearm_guided_axis_aligned",
+                    forearm_vector=vector,
+                    forearm_length=forearm_length,
+                    angle_deg=math.degrees(math.atan2(vector[1], vector[0])),
+                )
+
+        side_length = self.hand_min_size_px
+        if person_bbox is not None:
             x1, y1, x2, y2 = person_bbox
-            radius = max(radius, min(x2 - x1, y2 - y1) * self.hand_scale_from_person)
-        return radius
+            side_length = max(side_length, min(x2 - x1, y2 - y1) * self.hand_scale_from_person * 2.0)
+        return _HandCrop(
+            center=wrist,
+            side_length=side_length,
+            strategy="wrist_fallback_axis_aligned",
+            forearm_vector=None,
+            forearm_length=None,
+            angle_deg=None,
+        )
+
+    def _effective_hand_side_from_forearm(self) -> float:
+        if self.hand_scale_from_forearm is not None:
+            return self.hand_scale_from_forearm * 2.0
+        return self.hand_side_from_forearm
+
+
+@dataclass(frozen=True)
+class _HandCrop:
+    center: Point
+    side_length: float
+    strategy: str
+    forearm_vector: Point | None
+    forearm_length: float | None
+    angle_deg: float | None
 
 
 def build_person_poses(
@@ -183,10 +232,15 @@ def extract_hand_regions(
 def _point_at(points: Sequence[Point], index: int) -> Point | None:
     if index >= len(points):
         return None
-    return points[index]
+    point = points[index]
+    if point[0] <= 0.0 and point[1] <= 0.0:
+        return None
+    return point
 
 
 def _score_at(scores: Sequence[float], index: int, default: float = 1.0) -> float:
+    if len(scores) == 1:
+        return scores[0]
     if index >= len(scores):
         return default
     return scores[index]

@@ -10,7 +10,6 @@ from shoplift.tracking.association import (
     DisappearanceAfterEntryDetector,
     HandItemContactAssociator,
     ItemFollowPersonAssociator,
-    PoseItemContactAssociator,
     ShopliftingRelationAssociator,
     TrackedDetection,
 )
@@ -113,30 +112,7 @@ class AssociationTest(unittest.TestCase):
         self.assertIn("temporal_consistent", third[0].reason_tags)
         self.assertIn("motion_aligned", third[0].reason_tags)
 
-    def test_pose_item_contact_uses_wrist_keypoints_without_hand_roi(self) -> None:
-        associator = PoseItemContactAssociator(AssociationConfig(min_contact_frames=2))
-
-        first = associator.update(
-            frame_id=1,
-            timestamp_ms=33,
-            body_poses=(_pose(1, (130, 116)),),
-            items=(_tracked_item(1, (126, 104, 150, 126)),),
-        )
-        second = associator.update(
-            frame_id=2,
-            timestamp_ms=66,
-            body_poses=(_pose(2, (135, 116)),),
-            items=(_tracked_item(2, (131, 104, 155, 126)),),
-        )
-
-        self.assertEqual(first, ())
-        self.assertEqual(len(second), 1)
-        self.assertEqual(second[0].relation_type, "hand_item_contact")
-        self.assertIn("pose_only", second[0].reason_tags)
-        self.assertEqual(second[0].metadata["contact_source"], "body_pose")
-        self.assertIn("wrist", second[0].evidence_boxes)
-
-    def test_relation_associator_uses_pose_contact_when_hand_roi_absent(self) -> None:
+    def test_relation_associator_requires_hand_roi_for_hand_item_contact(self) -> None:
         associator = ShopliftingRelationAssociator(AssociationConfig(min_contact_frames=1))
         frame = AssociationFrame(
             frame_id=1,
@@ -151,8 +127,7 @@ class AssociationTest(unittest.TestCase):
         result = associator.update(frame)
 
         contact = [relation for relation in result.relations if relation.relation_type == "hand_item_contact"]
-        self.assertEqual(len(contact), 1)
-        self.assertIn("pose_only", contact[0].reason_tags)
+        self.assertEqual(contact, [])
 
     def test_item_follow_person_handles_short_missing_gap(self) -> None:
         associator = ItemFollowPersonAssociator(AssociationConfig(max_missing_frames=2))

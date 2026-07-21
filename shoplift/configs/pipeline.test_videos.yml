@@ -30,7 +30,7 @@ backend:
     model_dir: C:/shoplift_models/paddledetection/person_keypoint
     threshold: 0.2
     batch_size: 8
-    derive_hand_regions: false
+    derive_hand_regions: true
   item_container:
     enabled: false
     model_dir: C:/shoplift_models/shoplift/item_container
@@ -46,7 +46,7 @@ modules:
     enabled: true
     min_keypoint_score: 0.2
   pose_hand:
-    enabled: false
+    enabled: true
     min_keypoint_score: 0.2
   item_container:
     enabled: false

@@ -18,6 +18,7 @@ from shoplift.cli.offline_analyze import (
     run_offline_analysis,
 )
 from shoplift.core.types import BodyPose, DetectionBox, HandRegion, Tracklet
+from shoplift.core.types import AttributePrediction, PersonAttribute
 
 
 class OfflineAnalyzeTest(unittest.TestCase):
@@ -89,6 +90,41 @@ class OfflineAnalyzeTest(unittest.TestCase):
             self.assertEqual([box["category"] for box in payload["item_container"]["items"]], ["item"])
             self.assertEqual([box["category"] for box in payload["item_container"]["containers"]], ["bag"])
             self.assertEqual(payload["metadata"]["backend"], "fixture")
+
+    def test_person_attributes_generate_proxy_item_regions_in_frame_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            frame_dir = root / "frames"
+            frame_dir.mkdir()
+            self.write_image(frame_dir / "frame_000.jpg")
+            output_dir = root / "outputs"
+            config = OfflineConfig(
+                camera_id="camera-test",
+                input_path=frame_dir,
+                input_type=None,
+                runtime=RuntimeOptions(max_frames=1, save_debug_visualization=False),
+                modules=ModuleOptions(
+                    pose_hand_enabled=True,
+                    person_attribute_enabled=True,
+                    proxy_item_enabled=True,
+                    item_container_classes=("bag",),
+                ),
+                backend=BackendOptions(),
+                outputs=OutputPaths(
+                    root=output_dir,
+                    frame_jsonl=output_dir / "frame_results.jsonl",
+                    event_json=output_dir / "events.json",
+                    debug_dir=output_dir / "debug",
+                    debug_video=output_dir / "debug.mp4",
+                ),
+            )
+
+            run_offline_analysis(config, backend=FixtureBackend(with_attribute=True))
+
+            payload = self.read_jsonl(output_dir / "frame_results.jsonl")[0]
+            self.assertEqual(payload["person_attributes"][0]["right_hand_state"]["label"], "holding_product")
+            self.assertEqual(len(payload["proxy_item_regions"]), 1)
+            self.assertFalse(payload["proxy_item_regions"][0]["is_precise_item_bbox"])
 
     def test_video_input_is_processed_when_video_writer_is_available(self) -> None:
         cv2 = self.import_cv2()
@@ -228,6 +264,9 @@ class OfflineAnalyzeTest(unittest.TestCase):
 
 
 class FixtureBackend:
+    def __init__(self, *, with_attribute: bool = False) -> None:
+        self.with_attribute = with_attribute
+
     def analyze(self, packet) -> VisionBackendResult:
         person_box = DetectionBox(
             box_id="person-box",
@@ -276,11 +315,29 @@ class FixtureBackend:
             skeleton_edges=((0, 1),),
             bbox=person_box.bbox,
         )
+        attributes = ()
+        if self.with_attribute:
+            attributes = (
+                PersonAttribute(
+                    attribute_id=f"attr-{packet.frame.frame_id}-person-42",
+                    person_track_id="person-42",
+                    frame_id=packet.frame.frame_id,
+                    timestamp_ms=packet.frame.timestamp_ms,
+                    bbox=person_box.bbox,
+                    left_hand_state=AttributePrediction("empty", 0.7),
+                    left_hand_visibility=AttributePrediction("clear", 0.85),
+                    right_hand_state=AttributePrediction("holding_product", 0.9),
+                    right_hand_visibility=AttributePrediction("clear", 0.8),
+                    body_orientation=AttributePrediction("front", 0.7),
+                    occlusion_level=AttributePrediction("none", 0.8),
+                ),
+            )
         return VisionBackendResult(
             detections=(item_box, bag_box),
             person_tracks=(tracklet,),
             body_poses=(body_pose,),
             hand_regions=(hand,),
+            person_attributes=attributes,
             metadata={"backend": "fixture"},
         )
 

@@ -9,7 +9,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping, Protocol, Sequence
 
-from shoplift.core.types import BodyPose, DetectionBox, FrameMeta, HandRegion, Tracklet
+from shoplift.core.types import (
+    BodyPose,
+    DetectionBox,
+    FrameMeta,
+    HandRegion,
+    PersonAttribute,
+    ProxyItemRegion,
+    Tracklet,
+)
 from shoplift.events.event_engine import ShopliftingEventEngine
 from shoplift.events.event_schema import risk_event_to_payload
 from shoplift.tracking.association import AssociationFrame
@@ -18,6 +26,9 @@ from shoplift.vision import (
     ItemContainerResult,
     PersonGate,
     PersonGateResult,
+    PersonAttributeConfig,
+    RuleBasedPersonAttributeEstimator,
+    build_proxy_item_regions,
 )
 
 
@@ -43,6 +54,9 @@ class ModuleOptions:
     pose_recognition_min_keypoint_score: float = 0.2
     pose_hand_enabled: bool = False
     pose_hand_min_keypoint_score: float = 0.2
+    person_attribute_enabled: bool = True
+    person_attribute_min_holding_product_score: float = 0.5
+    proxy_item_enabled: bool = True
     item_container_enabled: bool = True
     item_container_min_score: float = 0.35
     item_container_classes: tuple[str, ...] | None = None
@@ -90,6 +104,8 @@ class VisionBackendResult:
     person_tracks: tuple[Tracklet, ...] = ()
     body_poses: tuple[BodyPose, ...] = ()
     hand_regions: tuple[HandRegion, ...] = ()
+    person_attributes: tuple[PersonAttribute, ...] = ()
+    proxy_item_regions: tuple[ProxyItemRegion, ...] = ()
     metadata: dict[str, Any] | None = None
 
 
@@ -111,6 +127,8 @@ class FrameAnalysis:
     person_tracks: tuple[Tracklet, ...]
     body_poses: tuple[BodyPose, ...]
     hand_regions: tuple[HandRegion, ...]
+    person_attributes: tuple[PersonAttribute, ...]
+    proxy_item_regions: tuple[ProxyItemRegion, ...]
     item_container: ItemContainerResult
 
 
@@ -211,6 +229,8 @@ def load_offline_config(args: argparse.Namespace) -> OfflineConfig:
     person_gate_section = _mapping_at(modules_section, "person_gate")
     pose_recognition_section = _mapping_at(modules_section, "pose_recognition")
     pose_hand_section = _mapping_at(modules_section, "pose_hand")
+    person_attribute_section = _mapping_at(modules_section, "person_attribute")
+    proxy_item_section = _mapping_at(modules_section, "proxy_item")
     item_container_section = _mapping_at(modules_section, "item_container")
     configured_classes = item_container_section.get("classes")
     modules = ModuleOptions(
@@ -221,6 +241,11 @@ def load_offline_config(args: argparse.Namespace) -> OfflineConfig:
         pose_recognition_min_keypoint_score=float(pose_recognition_section.get("min_keypoint_score", 0.2)),
         pose_hand_enabled=bool(pose_hand_section.get("enabled", False)),
         pose_hand_min_keypoint_score=float(pose_hand_section.get("min_keypoint_score", 0.2)),
+        person_attribute_enabled=bool(person_attribute_section.get("enabled", True)),
+        person_attribute_min_holding_product_score=float(
+            person_attribute_section.get("min_holding_product_score", 0.5)
+        ),
+        proxy_item_enabled=bool(proxy_item_section.get("enabled", True)),
         item_container_enabled=bool(item_container_section.get("enabled", True)),
         item_container_min_score=float(item_container_section.get("min_score", 0.35)),
         item_container_classes=tuple(str(item) for item in configured_classes)
@@ -273,6 +298,7 @@ def run_offline_analysis(
         if config.modules.item_container_classes is not None
         else None,
     )
+    attribute_estimator = RuleBasedPersonAttributeEstimator()
 
     config.outputs.frame_jsonl.parent.mkdir(parents=True, exist_ok=True)
     config.outputs.event_json.parent.mkdir(parents=True, exist_ok=True)
@@ -302,6 +328,7 @@ def run_offline_analysis(
                     backend=backend,
                     person_gate=person_gate,
                     item_container_adapter=item_container_adapter,
+                    attribute_estimator=attribute_estimator,
                     modules=config.modules,
                 )
                 frame_result = analysis.payload
@@ -313,7 +340,8 @@ def run_offline_analysis(
                         person_tracks=analysis.person_tracks,
                         body_poses=analysis.body_poses,
                         hand_regions=analysis.hand_regions,
-                        items=analysis.item_container.items,
+                        items=analysis.item_container.items
+                        + tuple(region.to_detection_box() for region in analysis.proxy_item_regions),
                         containers=analysis.item_container.containers,
                         extension_regions=analysis.item_container.extension_regions,
                         metadata={
@@ -400,6 +428,7 @@ def analyze_packet(
         backend=backend,
         person_gate=person_gate,
         item_container_adapter=item_container_adapter,
+        attribute_estimator=RuleBasedPersonAttributeEstimator(),
         modules=modules,
     ).payload
 
@@ -410,6 +439,7 @@ def analyze_packet_components(
     backend: VisionBackend,
     person_gate: PersonGate,
     item_container_adapter: ItemContainerDetectionAdapter,
+    attribute_estimator: RuleBasedPersonAttributeEstimator,
     modules: ModuleOptions,
 ) -> FrameAnalysis:
     timings: dict[str, float] = {}
@@ -438,9 +468,43 @@ def analyze_packet_components(
 
     body_poses = backend_result.body_poses if modules.pose_recognition_enabled else ()
     hand_regions = backend_result.hand_regions if modules.pose_hand_enabled else ()
+    person_attributes = backend_result.person_attributes if modules.person_attribute_enabled else ()
+    proxy_item_regions = backend_result.proxy_item_regions if modules.proxy_item_enabled else ()
     if gate_result.skipped_heavy_modules:
         body_poses = ()
         hand_regions = ()
+        person_attributes = ()
+        proxy_item_regions = ()
+
+    if (
+        modules.person_attribute_enabled
+        and not gate_result.skipped_heavy_modules
+        and not person_attributes
+    ):
+        started = time.perf_counter()
+        person_attributes = attribute_estimator.estimate(
+            frame=packet.frame,
+            person_tracks=backend_result.person_tracks,
+            hand_regions=hand_regions,
+        )
+        timings["person_attribute"] = _elapsed_ms(started)
+
+    if (
+        modules.proxy_item_enabled
+        and modules.person_attribute_enabled
+        and not gate_result.skipped_heavy_modules
+        and not proxy_item_regions
+    ):
+        started = time.perf_counter()
+        proxy_item_regions = build_proxy_item_regions(
+            frame=packet.frame,
+            person_attributes=person_attributes,
+            hand_regions=hand_regions,
+            config=PersonAttributeConfig(
+                min_holding_product_score=modules.person_attribute_min_holding_product_score
+            ),
+        )
+        timings["proxy_item"] = _elapsed_ms(started)
 
     started = time.perf_counter()
     item_container_result = (
@@ -457,6 +521,8 @@ def analyze_packet_components(
         "person_tracks": [tracklet.to_dict() for tracklet in backend_result.person_tracks],
         "body_poses": [body_pose.to_dict() for body_pose in body_poses],
         "hand_regions": [hand_region.to_dict() for hand_region in hand_regions],
+        "person_attributes": [attribute.to_dict() for attribute in person_attributes],
+        "proxy_item_regions": [region.to_dict() for region in proxy_item_regions],
         "item_container": item_container_result.to_dict(),
         "metadata": {
             "input_type": packet.input_type,
@@ -472,6 +538,8 @@ def analyze_packet_components(
         person_tracks=backend_result.person_tracks,
         body_poses=tuple(body_poses),
         hand_regions=tuple(hand_regions),
+        person_attributes=tuple(person_attributes),
+        proxy_item_regions=tuple(proxy_item_regions),
         item_container=item_container_result,
     )
 
@@ -683,6 +751,13 @@ def draw_debug_overlay(image: Any, frame_result: Mapping[str, Any]) -> None:
         _draw_body_pose(image, body_pose)
     for hand in frame_result.get("hand_regions", []):
         _draw_bbox(image, hand.get("bbox"), (255, 120, 0), f"{hand.get('side')}_hand")
+    for proxy in frame_result.get("proxy_item_regions", []):
+        _draw_bbox(
+            image,
+            proxy.get("proxy_bbox"),
+            (0, 255, 255),
+            f"proxy_{proxy.get('hand_side')}",
+        )
     item_container = frame_result.get("item_container", {})
     for item in item_container.get("items", []):
         _draw_bbox(image, item.get("bbox"), (0, 220, 0), item.get("category"))

@@ -79,7 +79,7 @@ python -m shoplift.cli.offline_analyze --config shoplift/configs/pipeline.exampl
 python -m shoplift.cli.video_infer_visualize
 ```
 
-输出默认按视频名分别保留在 `outputs/inference_visualization/test_videos/<video_name>/`，其中 `debug_visualization.mp4` 是抽帧后的可视化视频，`debug_frames/` 保存对应 JPG 帧，`frame_results.jsonl` 保存逐帧结构化结果。可视化会叠加人体框和 COCO 17 点骨架。手部 ROI 已被人工确认为冗余模块，默认不再输出或可视化。目录批处理还会写出 `outputs/inference_visualization/test_videos/batch_summary.json`。
+输出默认按视频名分别保留在 `outputs/inference_visualization/test_videos/<video_name>/`，其中 `debug_visualization.mp4` 是抽帧后的可视化视频，`debug_frames/` 保存对应 JPG 帧，`frame_results.jsonl` 保存逐帧结构化结果。可视化会叠加人体框、COCO 17 点骨架和前臂导向手部 ROI。目录批处理还会写出 `outputs/inference_visualization/test_videos/batch_summary.json`。
 
 替换视频目录、单个视频或调整抽帧间隔：
 
@@ -111,7 +111,7 @@ python -m shoplift.eval.dcsass_eval --config shoplift/configs/pipeline.local.yml
 - PaddleDetection 适配器：`shoplift/adapters/paddledet_adapter.py`
 - 人员门控：`shoplift/vision/person_gate.py`
 - 姿态骨架：`shoplift/vision/body_pose.py`
-- 手部 ROI：`shoplift/vision/pose_hand.py`，保留为可选兼容模块，默认关闭。
+- 手部 ROI：`shoplift/vision/pose_hand.py`，可与姿态骨架同时输出；测试推理配置默认启用前臂导向裁剪。
 - 商品/容器检测适配：`shoplift/vision/object_container.py`
 - 关系关联：`shoplift/tracking/association.py`
 - 事件引擎：`shoplift/events/event_engine.py`
@@ -126,11 +126,11 @@ PaddleDetection 适配器当前支持 P0 输出转换：
 
 - 普通检测：`[class_id, score, x1, y1, x2, y2]` -> `DetectionBox`
 - PP-Human/MOT：`[track_id, class_id, score, x1, y1, x2, y2]` 或 SDE `online_tlwhs/scores/ids` -> `Tracklet`
-- 关键点：PP-Human `{"keypoint": [keypoints, scores]}` -> `BodyPose`。`HandRegion` 派生保留为可选兼容路径，当前默认关闭。
+- 关键点：PP-Human `{"keypoint": [keypoints, scores]}` -> `BodyPose`；开启 `keypoint.derive_hand_regions` 时同步派生 `HandRegion`。
 
 人员门控当前可从 `DetectionBox`、`Tracklet` 或适配器的帧结果中判断是否有人；无人帧返回 `skipped_heavy_modules=true`，同时累计 `skip_rate` 和 `trigger_rate`。
 
-`body_pose` 模块输出 COCO 17 点关键点、逐点置信度、骨架边和 `person_track_id` 绑定关系。手部 ROI 与姿态理解按 OR 关系保留，但当前工程决策是 pose-only：使用姿态 wrist 关键点作为接触证据来源，不再依赖 `pose_hand`。
+`body_pose` 模块输出 COCO 17 点关键点、逐点置信度、骨架边和 `person_track_id` 绑定关系。`pose_hand` 模块基于肘点和腕点同步派生前臂导向手部 ROI；`hand_item_contact` 关系必须依赖 `HandRegion`，不再从姿态 wrist 点直接生成接触证据。
 
 `object_container` 模块将 `product/backpack/handbag/cart/pocket_region` 等模型类别归一到 `item/bag/basket/clothing_region` 等粗粒度内部类别，输出商品、容器和扩展区域分组结果。
 
