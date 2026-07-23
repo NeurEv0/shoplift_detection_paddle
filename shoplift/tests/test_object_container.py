@@ -28,6 +28,7 @@ class ObjectContainerTest(unittest.TestCase):
                 self.box("product-1", "product"),
                 self.box("backpack-1", "backpack"),
                 self.box("cart-1", "cart"),
+                self.box("plastic-bag-1", "plastic_bag"),
                 self.box("stroller-1", "stroller"),
                 self.box("helmet-1", "helmet"),
                 self.box("pocket-1", "pocket_region"),
@@ -36,11 +37,12 @@ class ObjectContainerTest(unittest.TestCase):
         )
 
         self.assertEqual([box.category for box in result.items], ["item"])
-        self.assertEqual([box.category for box in result.containers], ["bag", "basket", "stroller", "helmet"])
+        self.assertEqual([box.category for box in result.containers], ["bag", "basket", "basket", "stroller", "helmet"])
         self.assertEqual([box.category for box in result.extension_regions], ["clothing_region"])
         self.assertTrue(result.containers[1].attributes["is_normal_container"])
+        self.assertTrue(result.containers[2].attributes["is_normal_container"])
         self.assertEqual(result.containers[0].attributes["source_category"], "backpack")
-        self.assertEqual(result.to_dict()["metadata"]["container_count"], 4)
+        self.assertEqual(result.to_dict()["metadata"]["container_count"], 5)
 
     def test_low_score_and_unsupported_categories_are_skipped(self) -> None:
         result = adapt_item_container_detections(
@@ -84,6 +86,7 @@ class ObjectContainerTest(unittest.TestCase):
 
     def test_category_helpers(self) -> None:
         self.assertEqual(canonical_item_container_category("HandBag"), "bag")
+        self.assertEqual(canonical_item_container_category("plastic_bag"), "basket")
         self.assertEqual(detection_role("cart"), "container")
         self.assertEqual(detection_role("pocket_region"), "extension_region")
 

@@ -1,0 +1,14 @@
+<View>
+  <Image name="image" value="$image" zoom="true" zoomControl="true" rotateControl="false"/>
+  <RectangleLabels name="label" toName="image">
+    <Label value="bag" background="#e11d48"/>
+    <Label value="backpack" background="#2563eb"/>
+    <Label value="handbag" background="#16a34a"/>
+    <Label value="suitcase" background="#ca8a04"/>
+    <Label value="basket" background="#7c3aed"/>
+    <Label value="cart" background="#0891b2"/>
+    <Label value="plastic_bag" background="#ea580c"/>
+    <Label value="stroller" background="#4f46e5"/>
+    <Label value="helmet" background="#be123c"/>
+  </RectangleLabels>
+</View>

@@ -1,0 +1,86 @@
+camera_id: person-attribute-labeling
+
+input:
+  type: frame_dir
+  path: ./datasets/person_attribute_yulong_store_full/images/full
+
+runtime:
+  device: cpu
+  frame_stride: 1
+  max_frames: null
+  save_debug_visualization: false
+  save_debug_frames: false
+
+backend:
+  type: paddledet_pphuman
+  paddledetection_root: ./src/PaddleDetection-release-2.9
+  pphuman_config: ./src/PaddleDetection-release-2.9/deploy/pipeline/config/infer_cfg_pphuman.yml
+  device: cpu
+  run_mode: paddle
+  output_dir: ./outputs/paddledet/person_attribute_labeling
+  mot:
+    enabled: true
+    # Keep this path outside the non-ASCII project directory because Paddle
+    # Inference may fail to open model files from paths containing Chinese text.
+    model_dir: C:/shoplift_models/paddledetection/person_mot
+    tracker_config: ./src/PaddleDetection-release-2.9/deploy/pipeline/config/tracker_config.yml
+    threshold: 0.5
+    batch_size: 1
+    skip_frame_num: -1
+  keypoint:
+    enabled: false
+    model_dir: C:/shoplift_models/paddledetection/person_keypoint
+    threshold: 0.2
+    batch_size: 8
+    derive_hand_regions: false
+  person_attribute:
+    enabled: false
+    model_dir: ./models/shoplift/person_attribute/inference
+    threshold: 0.5
+    batch_size: 8
+    image_width: 192
+    image_height: 256
+    min_holding_product_score: 0.5
+  item_container:
+    enabled: false
+    model_dir: ./models/shoplift/item_container
+    threshold: 0.35
+    batch_size: 1
+
+modules:
+  person_gate:
+    enabled: true
+    min_score: 0.45
+    skip_when_empty: true
+  pose_recognition:
+    enabled: false
+    min_keypoint_score: 0.2
+  pose_hand:
+    enabled: false
+    min_keypoint_score: 0.2
+  person_attribute:
+    enabled: false
+    min_holding_product_score: 0.5
+  proxy_item:
+    enabled: false
+  item_container:
+    enabled: false
+    min_score: 0.35
+    classes:
+      - item
+      - product
+      - bag
+      - backpack
+      - handbag
+      - basket
+      - cart
+      - stroller
+      - helmet
+      - clothing_region
+      - pocket_region
+
+outputs:
+  frame_jsonl: ./outputs/person_attribute_yulong_store_full_detector/frame_results.jsonl
+  event_json: ./outputs/person_attribute_yulong_store_full_detector/events.json
+  debug_visualization_dir: ./outputs/person_attribute_yulong_store_full_detector/debug
+  debug_visualization_video: ./outputs/person_attribute_yulong_store_full_detector/debug_visualization.mp4

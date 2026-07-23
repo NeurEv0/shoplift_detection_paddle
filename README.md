@@ -141,6 +141,32 @@ P1 事件引擎当前支持 `bag_concealment`、`clothing_concealment`、`specia
 
 属性模型训练代码位于 `shoplift/models/person_attribute/`，用于训练左右手持商品、左右手可见性、人体朝向和遮挡等级 6 个分类 head。示例配置：
 
+从现有监控视频进入数据处理时，先用离线分析结果中的人员框抽取人像 crop 并生成待标注 CSV：
+
+```powershell
+python scripts/prepare_person_attribute_dataset.py --input data/samples/videos --output datasets/person_attribute/working --frame-jsonl outputs/shoplift/frame_results.jsonl --frame-stride 30
+```
+
+如果已经完成抽帧，例如 `datasets/person_attribute_yulong_store_full` 这种全帧图片数据集，先用 PP-Human 人员检测/跟踪后端生成 bbox JSONL，再裁剪为人员属性标注集：
+
+```powershell
+conda run -n shoplift-paddle python -m shoplift.cli.offline_analyze --config shoplift/configs/pipeline.person_attribute_labeling.yml --input datasets/person_attribute_yulong_store_full/images/full --output outputs/person_attribute_yulong_store_full_detector --frame-stride 1 --no-debug
+
+conda run -n shoplift-paddle python scripts/prepare_person_attribute_dataset.py --input datasets/person_attribute_yulong_store_full/images --input-type image_dir --output datasets/person_attribute_yulong_store_crops --split full --frame-jsonl outputs/person_attribute_yulong_store_full_detector/frame_results.jsonl --source-annotation datasets/person_attribute_yulong_store_full/full.csv --padding-ratio 0.08 --overwrite
+```
+
+输出的 `datasets/person_attribute_yulong_store_crops/full.csv` 与 `images/full/` 可直接作为人工标注模板；CSV 中默认标签仍是保守占位，标注复核后再用于训练。
+
+快速标注可使用仓库内置的轻量 Web 标注器，不需要额外数标平台：
+
+```powershell
+conda run -n shoplift-paddle python scripts/label_person_attribute_dataset.py --dataset datasets/person_attribute_yulong_store_crops --annotation full.csv
+```
+
+默认打开 `http://127.0.0.1:8765/`，直接回写 `full.csv`。快捷键：`←/→` 上一张/下一张，`s` 保存为 `reviewed` 并进入下一张，`x` 标记为 `skipped`。
+
+生成的 CSV 默认 `label_status=unreviewed`，占位标签只用于打开标注流程，人工复核后再用于训练。
+
 ```powershell
 conda run -n shoplift-paddle python -m shoplift.models.person_attribute.train --config shoplift/configs/person_attribute.example.yml
 ```

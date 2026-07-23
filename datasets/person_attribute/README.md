@@ -33,3 +33,11 @@ Allowed labels:
 Images should be person crops aligned with the tracked person bbox. The training
 loader resizes each crop to `192x256` and applies ImageNet normalization.
 
+To bootstrap labeling from videos, use:
+
+```powershell
+python scripts/prepare_person_attribute_dataset.py --input path/to/videos --output datasets/person_attribute/working --frame-jsonl outputs/.../frame_results.jsonl
+```
+
+The script writes crop images under `images/<split>/` and a CSV template with
+`label_status=unreviewed` plus conservative placeholder labels for manual review.

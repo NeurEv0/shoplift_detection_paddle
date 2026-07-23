@@ -66,6 +66,19 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _class_id_mapping(value: Any) -> dict[int, str] | None:
+    if not isinstance(value, Mapping):
+        return None
+    mapping: dict[int, str] = {}
+    for raw_key, raw_value in value.items():
+        try:
+            key = int(raw_key)
+        except (TypeError, ValueError):
+            continue
+        mapping[key] = str(raw_value)
+    return mapping or None
+
+
 def _softmax(values: Any) -> list[float]:
     import math
 
@@ -179,6 +192,11 @@ class PaddleDetPPHumanBackendConfig:
         item_mapping = _mapping_at(mapping, "item_container")
         pphuman_mot = _mapping_at(pphuman_cfg, "MOT")
         pphuman_kpt = _mapping_at(pphuman_cfg, "KPT")
+        item_class_id_to_category = (
+            _class_id_mapping(item_mapping.get("class_id_to_category"))
+            or _class_id_mapping(mapping.get("item_class_id_to_category"))
+            or dict(SHOPLIFT_CLASS_ID_TO_CATEGORY)
+        )
 
         tracker_config = _resolve_path(
             _as_path(mot_mapping.get("tracker_config") or pphuman_mot.get("tracker_config")),
@@ -229,6 +247,7 @@ class PaddleDetPPHumanBackendConfig:
                 batch_size=int(item_mapping.get("batch_size", 1)),
                 threshold=float(item_mapping.get("threshold", 0.35)),
             ),
+            item_class_id_to_category=item_class_id_to_category,
         )
 
 

@@ -199,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
 def load_offline_config(args: argparse.Namespace) -> OfflineConfig:
     config_data = _load_yaml(args.config)
     input_path = args.input or _path_or_none(_nested_get(config_data, ("input", "path")))
-    input_type = _str_or_none(_nested_get(config_data, ("input", "type")))
+    input_type = None if args.input is not None else _str_or_none(_nested_get(config_data, ("input", "type")))
     output_root = args.output or Path("outputs/shoplift")
 
     runtime_section = _mapping_at(config_data, "runtime")

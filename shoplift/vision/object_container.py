@@ -20,7 +20,9 @@ ITEM_AND_CONTAINER_ALIASES = {
     "product": ITEM_CATEGORY,
     "backpack": PERSONAL_CONTAINER_CATEGORY,
     "handbag": PERSONAL_CONTAINER_CATEGORY,
+    "suitcase": PERSONAL_CONTAINER_CATEGORY,
     "cart": NORMAL_CONTAINER_CATEGORY,
+    "plastic_bag": NORMAL_CONTAINER_CATEGORY,
     "pocket_region": EXTENSION_REGION_CATEGORY,
 }
 
@@ -31,8 +33,10 @@ ITEM_AND_CONTAINER_CLASSES = frozenset(
         PERSONAL_CONTAINER_CATEGORY,
         "backpack",
         "handbag",
+        "suitcase",
         NORMAL_CONTAINER_CATEGORY,
         "cart",
+        "plastic_bag",
         "stroller",
         "helmet",
         EXTENSION_REGION_CATEGORY,

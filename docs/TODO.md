@@ -218,6 +218,7 @@ shoplift/
   - [ ] 训练或接入 `docs/supermarket_person_attribute_model.md` 定义的真实人员属性模型，输出左右手 `holding_product`、`holding_object`、`empty`、`uncertain`。
   - [x] 补充人员属性模型研发代码、backbone wrapper、训练/导出入口和预训练参数路径约定。
   - [x] 新增属性数据结构、后处理模块和 PP-Human 后端 Paddle Inference 接入点。
+  - [x] 对 `datasets/person_attribute_yulong_store_full` 现存抽帧接入 PP-Human 人员检测/跟踪推理，生成 bbox JSONL，并裁剪为 `datasets/person_attribute_yulong_store_crops/full.csv` 标注模板。
   - [x] 输出左右手可见性、人体朝向和遮挡等级，并写入逐帧 JSON。
   - [x] 将 `holding_product + hand_roi` 转换为 `proxy_item_region`，明确标记 `is_precise_item_bbox=false`。
   - [x] 以 `person_track_id + hand_side` 聚合 `proxy_item_track_id`，形成代理商品轨迹。

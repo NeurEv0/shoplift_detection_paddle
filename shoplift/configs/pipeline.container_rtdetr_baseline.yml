@@ -1,0 +1,90 @@
+camera_id: demo-camera-001
+
+input:
+  type: video
+  path: ./datasets/test_videos/Shoplifting010_x264_merged.mp4
+
+runtime:
+  device: cpu
+  frame_stride: 1
+  max_frames: null
+  save_debug_visualization: true
+
+backend:
+  type: paddledet_pphuman
+  paddledetection_root: ./src/PaddleDetection-release-2.9
+  pphuman_config: ./src/PaddleDetection-release-2.9/deploy/pipeline/config/infer_cfg_pphuman.yml
+  device: cpu
+  run_mode: paddle
+  mot:
+    enabled: true
+    model_dir: ./models/paddledetection/person_mot
+    tracker_config: ./src/PaddleDetection-release-2.9/deploy/pipeline/config/tracker_config.yml
+    threshold: 0.5
+    batch_size: 1
+    skip_frame_num: -1
+  keypoint:
+    enabled: false
+    model_dir: ./models/paddledetection/person_keypoint
+    threshold: 0.2
+    batch_size: 8
+    derive_hand_regions: false
+  person_attribute:
+    enabled: false
+    model_dir: ./models/shoplift/person_attribute
+    threshold: 0.5
+    batch_size: 8
+    image_width: 192
+    image_height: 256
+    min_holding_product_score: 0.5
+  item_container:
+    enabled: true
+    model_dir: ./models/shoplift/item_container/rtdetr_r50vd_6x_container_det
+    threshold: 0.35
+    batch_size: 1
+    class_id_to_category:
+      0: bag
+      1: backpack
+      2: handbag
+      3: suitcase
+      4: basket
+      5: cart
+      6: plastic_bag
+      7: stroller
+      8: helmet
+
+modules:
+  person_gate:
+    enabled: true
+    min_score: 0.45
+    skip_when_empty: true
+  pose_recognition:
+    enabled: true
+    min_keypoint_score: 0.2
+  pose_hand:
+    enabled: false
+    min_keypoint_score: 0.2
+  person_attribute:
+    enabled: true
+    min_holding_product_score: 0.5
+  proxy_item:
+    enabled: true
+  item_container:
+    enabled: true
+    min_score: 0.35
+    classes:
+      - bag
+      - backpack
+      - handbag
+      - suitcase
+      - basket
+      - cart
+      - plastic_bag
+      - stroller
+      - helmet
+
+outputs:
+  frame_jsonl: ./outputs/shoplift/container_rtdetr_frame_results.jsonl
+  event_json: ./outputs/shoplift/container_rtdetr_events.json
+  debug_visualization_dir: ./outputs/shoplift/container_rtdetr_debug
+  debug_visualization_video: ./outputs/shoplift/container_rtdetr_debug_visualization.mp4

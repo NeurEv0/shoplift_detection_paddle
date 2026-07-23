@@ -121,7 +121,8 @@ def _load_image(path: Path, image_size: tuple[int, int], training: bool):
     import cv2
     import numpy as np
 
-    image = cv2.imread(str(path))
+    data = np.frombuffer(path.read_bytes(), dtype=np.uint8)
+    image = cv2.imdecode(data, cv2.IMREAD_COLOR) if data.size else None
     if image is None:
         raise ValueError(f"failed to read image: {path}")
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)

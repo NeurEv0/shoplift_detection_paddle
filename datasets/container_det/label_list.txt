@@ -1,0 +1,9 @@
+bag
+backpack
+handbag
+suitcase
+basket
+cart
+plastic_bag
+stroller
+helmet

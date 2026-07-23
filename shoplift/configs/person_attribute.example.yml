@@ -3,13 +3,9 @@ device: cpu
 seed: 2026
 
 backbone:
-  # Recommended first choice: pphgnetv2 S. Alternatives: pphgnetv2 N/M, lcnet 1.0, tiny_cnn.
   name: pphgnetv2
   arch: S
   paddledetection_root: ./src/PaddleDetection-release-2.9
-  # Put downloaded Paddle/PaddleDetection/PaddleClas pretrained weights here.
-  # The training script loads matching parameters non-strictly, so classifier
-  # heads can be new while backbone weights are reused.
   pretrained: ./models/pretrained/person_attribute/pphgnetv2_s_pretrained.pdparams
   freeze_backbone_epochs: 0
 
