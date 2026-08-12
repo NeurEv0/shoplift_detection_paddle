@@ -73,3 +73,7 @@ outputs/
 !/datasets/container_det/container_labeling_spec.md
 !/datasets/container_det/label_list.txt
 !/datasets/container_det/label_studio_config.xml
+
+datasets_annotation/
+
+.tmp/

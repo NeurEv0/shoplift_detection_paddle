@@ -160,7 +160,7 @@ conda run -n shoplift-paddle python scripts/prepare_person_attribute_dataset.py 
 快速标注可使用仓库内置的轻量 Web 标注器，不需要额外数标平台：
 
 ```powershell
-conda run -n shoplift-paddle python scripts/label_person_attribute_dataset.py --dataset datasets/person_attribute_yulong_store_crops --annotation full.csv
+conda run -n shoplift-paddle python scripts/label_person_attribute_dataset.py --dataset datasets/person_attribute/person_attribute_yulong_store_crops --annotation full.csv
 ```
 
 默认打开 `http://127.0.0.1:8765/`，直接回写 `full.csv`。快捷键：`←/→` 上一张/下一张，`s` 保存为 `reviewed` 并进入下一张，`x` 标记为 `skipped`。
