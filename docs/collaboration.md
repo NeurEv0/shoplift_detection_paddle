@@ -19,7 +19,7 @@
 
 一次性准备，按顺序执行：
 
-1. **权限**：获得 `NeurEv0/shoplift_detection_paddle` 访问权；主机在 `10.200.0.0/16` 网段内；（可选）GPU 机 SSH 账号。
+1. **权限**：获得 `NeurEv0/shoplift_detection_paddle` 访问权；主机在 `10.200.0.0/16` 网段内。
 
 2. **代码与环境**：
 
@@ -200,8 +200,6 @@ python -m shoplift.cli.offline_analyze --output outputs/<你的名字>/<任务> 
 ## 3. GPU 算力约定
 
 - 只有**训练 / GPU 推理**才在 GPU 主机执行；日常编码、单测在各自开发机完成。
-- GPU 主机单卡 16G、内存 15G，避免多人同时跑大任务导致 OOM。
-- GPU 任务排队机制：规划中，落地后在此补充。
 
 ## 4. 常见问题
 
