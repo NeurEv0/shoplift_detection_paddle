@@ -29,6 +29,7 @@ scikit-learn>=1.1,<1.4
 lapx>=0.5,<0.6
 motmetrics>=1.4,<2.0
 numba>=0.59,<0.61
+imgaug>=0.4.0,<0.5
 
 # Optional WiLoR hand detector runtime. Keep these in the same resolver pass as
 # the Paddle/PaddleDetection constraints above.

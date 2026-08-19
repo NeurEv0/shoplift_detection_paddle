@@ -12,6 +12,10 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # Expose the vendored PaddleDetection source so `import ppdet` resolves
+      # without a (brittle) editable install; see requirements.txt header note.
+      PYTHONPATH: ${{ github.workspace }}/src/PaddleDetection-release-2.9
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,7 +30,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
-          pip install -e src/PaddleDetection-release-2.9
 
       - name: Environment self-check
         run: python scripts/check_env.py
