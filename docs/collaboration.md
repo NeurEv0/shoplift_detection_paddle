@@ -141,6 +141,34 @@ Windows Home 无内置 NFS 客户端，可选：
 - 使用 WSL2（Ubuntu）按 2.2 方式挂载；
 - 或安装第三方 NFS 客户端。
 
+### 2.5 输出目录约定（按人分目录）
+
+为避免多人互相覆盖，所有产出统一按 `outputs/<用户>/<任务>/` 组织：
+
+- `<用户>` 默认取运行环境的 `$USER`（GPU 机上是 `ubuntu`、`ljh` 等系统账号）；也可用 `SHOPLIFT_USER` 显式指定（推荐用 GitHub 用户名）：
+
+  ```bash
+  export SHOPLIFT_USER=your_github_name
+  ```
+
+- `<任务>` 由各配置里的 `outputs:` 路径决定（如 `shoplift`、`inference_visualization/test_videos`）。
+
+`offline_analyze` 默认输出示例（`$USER=ubuntu`）：
+
+```text
+outputs/ubuntu/shoplift/frame_results.jsonl
+outputs/ubuntu/shoplift/events.json
+outputs/ubuntu/shoplift/debug/
+```
+
+`--output <dir>` 会完全覆盖默认，直接写到指定目录：
+
+```bash
+python -m shoplift.cli.offline_analyze --output outputs/<你的名字>/<任务> ...
+```
+
+其它 CLI（`video_infer_visualize`、`hand_crop_visualize`、`dcsass_eval`）同样用 `--output outputs/<你的名字>/<任务>` 指定。后续 GPU 任务排队会按作业自动设置 `SHOPLIFT_USER`。
+
 ## 3. GPU 算力约定
 
 - 只有**训练 / GPU 推理**才在 GPU 主机执行；日常编码、单测在各自开发机完成。

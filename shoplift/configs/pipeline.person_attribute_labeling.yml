@@ -80,7 +80,7 @@ modules:
       - pocket_region
 
 outputs:
-  frame_jsonl: ./outputs/person_attribute_yulong_store_full_detector/frame_results.jsonl
-  event_json: ./outputs/person_attribute_yulong_store_full_detector/events.json
-  debug_visualization_dir: ./outputs/person_attribute_yulong_store_full_detector/debug
-  debug_visualization_video: ./outputs/person_attribute_yulong_store_full_detector/debug_visualization.mp4
+  frame_jsonl: person_attribute_yulong_store_full_detector/frame_results.jsonl
+  event_json: person_attribute_yulong_store_full_detector/events.json
+  debug_visualization_dir: person_attribute_yulong_store_full_detector/debug
+  debug_visualization_video: person_attribute_yulong_store_full_detector/debug_visualization.mp4

@@ -77,7 +77,7 @@ modules:
       - pocket_region
 
 outputs:
-  frame_jsonl: ./outputs/shoplift/frame_results.jsonl
-  event_json: ./outputs/shoplift/events.json
-  debug_visualization_dir: ./outputs/shoplift/debug
-  debug_visualization_video: ./outputs/shoplift/debug_visualization.mp4
+  frame_jsonl: shoplift/frame_results.jsonl
+  event_json: shoplift/events.json
+  debug_visualization_dir: shoplift/debug
+  debug_visualization_video: shoplift/debug_visualization.mp4

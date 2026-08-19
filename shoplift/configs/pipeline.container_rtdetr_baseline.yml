@@ -84,7 +84,7 @@ modules:
       - helmet
 
 outputs:
-  frame_jsonl: ./outputs/shoplift/container_rtdetr_frame_results.jsonl
-  event_json: ./outputs/shoplift/container_rtdetr_events.json
-  debug_visualization_dir: ./outputs/shoplift/container_rtdetr_debug
-  debug_visualization_video: ./outputs/shoplift/container_rtdetr_debug_visualization.mp4
+  frame_jsonl: shoplift/container_rtdetr_frame_results.jsonl
+  event_json: shoplift/container_rtdetr_events.json
+  debug_visualization_dir: shoplift/container_rtdetr_debug
+  debug_visualization_video: shoplift/container_rtdetr_debug_visualization.mp4

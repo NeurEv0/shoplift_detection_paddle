@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,6 +36,12 @@ from shoplift.vision import (
 FRAME_RESULT_SCHEMA_VERSION = "shoplift.frame_result.v1"
 IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"})
 VIDEO_EXTENSIONS = frozenset({".mp4", ".avi", ".mov", ".mkv", ".m4v", ".wmv", ".mpg", ".mpeg"})
+
+
+def default_user_output_root() -> Path:
+    """Per-user output root: outputs/<user>/, overridable via $SHOPLIFT_USER."""
+    user = os.environ.get("SHOPLIFT_USER") or os.environ.get("USER") or "default"
+    return Path("outputs") / user
 
 
 @dataclass(frozen=True)
@@ -200,7 +207,7 @@ def load_offline_config(args: argparse.Namespace) -> OfflineConfig:
     config_data = _load_yaml(args.config)
     input_path = args.input or _path_or_none(_nested_get(config_data, ("input", "path")))
     input_type = None if args.input is not None else _str_or_none(_nested_get(config_data, ("input", "type")))
-    output_root = args.output or Path("outputs/shoplift")
+    output_root = args.output or default_user_output_root()
 
     runtime_section = _mapping_at(config_data, "runtime")
     runtime = RuntimeOptions(
@@ -406,12 +413,20 @@ def output_paths_from_config(
             debug_dir=output_root / "debug",
             debug_video=output_root / "debug_visualization.mp4",
         )
+
+    def _resolve(key: str, default_name: str) -> Path:
+        raw = outputs_section.get(key)
+        if not raw:
+            return output_root / default_name
+        path = Path(str(raw))
+        return path if path.is_absolute() else output_root / path
+
     return OutputPaths(
         root=output_root,
-        frame_jsonl=_path_at(outputs_section, "frame_jsonl", output_root / "frame_results.jsonl"),
-        event_json=_path_at(outputs_section, "event_json", output_root / "events.json"),
-        debug_dir=_path_at(outputs_section, "debug_visualization_dir", output_root / "debug"),
-        debug_video=_path_at(outputs_section, "debug_visualization_video", output_root / "debug_visualization.mp4"),
+        frame_jsonl=_resolve("frame_jsonl", "frame_results.jsonl"),
+        event_json=_resolve("event_json", "events.json"),
+        debug_dir=_resolve("debug_visualization_dir", "debug"),
+        debug_video=_resolve("debug_visualization_video", "debug_visualization.mp4"),
     )
 
 
@@ -972,11 +987,6 @@ def _mapping_at(mapping: Mapping[str, Any], key: str) -> Mapping[str, Any]:
 
 def _path_or_none(value: Any) -> Path | None:
     return Path(value) if value else None
-
-
-def _path_at(mapping: Mapping[str, Any], key: str, default: Path) -> Path:
-    value = mapping.get(key)
-    return Path(value) if value else default
 
 
 def _str_or_none(value: Any) -> str | None:

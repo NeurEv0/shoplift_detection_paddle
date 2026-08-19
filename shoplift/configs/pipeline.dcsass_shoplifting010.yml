@@ -65,7 +65,7 @@ modules:
       - pocket_region
 
 outputs:
-  frame_jsonl: ./outputs/inference_visualization/dcsass_shoplifting010/frame_results.jsonl
-  event_json: ./outputs/inference_visualization/dcsass_shoplifting010/events.json
-  debug_visualization_dir: ./outputs/inference_visualization/dcsass_shoplifting010/debug_frames
-  debug_visualization_video: ./outputs/inference_visualization/dcsass_shoplifting010/debug_visualization.mp4
+  frame_jsonl: inference_visualization/dcsass_shoplifting010/frame_results.jsonl
+  event_json: inference_visualization/dcsass_shoplifting010/events.json
+  debug_visualization_dir: inference_visualization/dcsass_shoplifting010/debug_frames
+  debug_visualization_video: inference_visualization/dcsass_shoplifting010/debug_visualization.mp4
