@@ -15,6 +15,34 @@
 - **算力**：集中在 GPU 主机执行。只有训练/GPU 推理才提交到 GPU 机。
 - **数据/权重/输出**：通过 NFS 共享，只存一份，不复制、不进 Git。
 
+## 快速上手（新协作者）
+
+一次性准备，按顺序执行：
+
+1. **权限**：获得 `NeurEv0/shoplift_detection_paddle` 访问权；主机在 `10.200.0.0/16` 网段内；（可选）GPU 机 SSH 账号。
+
+2. **代码与环境**：
+
+   ```bash
+   git clone https://github.com/NeurEv0/shoplift_detection_paddle.git
+   cd shoplift_detection_paddle
+   conda env create -f environment.yml && conda activate shoplift-paddle
+   pip install -e src/PaddleDetection-release-2.9
+   cp shoplift/configs/env.example.yml shoplift/configs/env.local.yml   # Windows: Copy-Item
+   python scripts/check_env.py --config shoplift/configs/env.local.yml
+   pip install pre-commit && pre-commit install
+   ```
+
+3. **挂载共享数据（NFS）**：Ubuntu 见 2.2，Windows 见 2.3；`datasets`/`models`/`outputs` 只读，`datasets_annotation` 可写。
+
+4. **设按人输出**：
+
+   ```bash
+   export SHOPLIFT_USER=你的GitHub用户名   # 写入 ~/.bashrc / 系统环境变量
+   ```
+
+5. **日常开发**：`git checkout -b feature/xxx` → 开发 → `python -m pytest shoplift/tests -q` + `ruff check shoplift scripts` → `git push` → 开 PR（CI 自动检查）→ 合入 `main`。
+
 ## 1. 代码协作
 
 ### 1.1 分支模型
