@@ -152,7 +152,6 @@ class RiskScorer:
         event_type = event_type or snapshot.suggested_event_type or "near_body_suspicious"
         reason_tags = set(snapshot.reason_tags)
         evidence = tuple(snapshot.evidence)
-        components: dict[str, float] = {}
 
         action_weight = float(self.config.action_type_weights.get(event_type, 0.12))
         container_kind = _container_kind_from_snapshot(snapshot)

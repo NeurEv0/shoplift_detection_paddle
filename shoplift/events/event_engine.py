@@ -11,7 +11,6 @@ from shoplift.events.state_machine import (
     CONFIRMED_RISK_EVENT,
     NEAR_BODY_OR_CONTAINER,
     ITEM_PICKED,
-    RESOLVED_OR_DOWNGRADED,
     SUSPECTED_CONCEALMENT,
     SuspiciousActionStateMachine,
 )

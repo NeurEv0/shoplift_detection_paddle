@@ -741,7 +741,6 @@ class DebugVisualizationWriter:
 
 
 def draw_debug_overlay(image: Any, frame_result: Mapping[str, Any]) -> None:
-    cv2 = _import_cv2()
     for tracklet in frame_result.get("person_tracks", []):
         for box in tracklet.get("boxes", [])[-1:]:
             _draw_bbox(image, box.get("bbox"), (80, 180, 255), tracklet.get("track_id"))

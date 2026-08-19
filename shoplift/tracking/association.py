@@ -341,7 +341,7 @@ class HandItemContactAssociator:
                     else:
                         state.consecutive_frames = 1
                     state.last_frame_id = frame_id
-                    state.last_hand_center = hand_center = bbox_center(hand.bbox)
+                    state.last_hand_center = bbox_center(hand.bbox)
                     state.last_item_center = item.center
                 else:
                     state.consecutive_frames = 0
@@ -481,7 +481,6 @@ class ItemFollowPersonAssociator:
             for evidence in contact_evidence
             if evidence.item_track_id and evidence.person_track_id
         }
-        item_by_id = {tracked.track_id: tracked.detection for tracked in items}
         evidences: list[RelationEvidence] = []
         seen_item_ids: set[str] = set()
 

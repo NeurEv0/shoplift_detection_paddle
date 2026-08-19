@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Sequence
 
-from shoplift.core.types import BBox, BodyPose, FrameMeta, Point, Tracklet
+from shoplift.core.types import BodyPose, FrameMeta, Point, Tracklet
 
 
 COCO_PERSON_KEYPOINT_NAMES: tuple[str, ...] = (
