@@ -27,6 +27,19 @@ foreach ($t in $targets) {
     }
 }
 
+# Repo-relative layout check (server-same paths via symlinks, see link_nfs_to_repo.ps1)
+$repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+Log "--- repo relative paths (repo: $repo) ---"
+$rel = @(
+    @{ P = "$repo\models\paddledetection\person_mot";                              D = 'models/paddledetection/person_mot' },
+    @{ P = "$repo\datasets\container_det\label_list.txt";                          D = 'datasets/container_det/label_list.txt' },
+    @{ P = "$repo\outputs\ubuntu";                                                 D = 'outputs/ubuntu' },
+    @{ P = "$repo\datasets_annotation";                                            D = 'datasets_annotation (rw)' }
+)
+foreach ($c in $rel) {
+    Log ("{0} : {1}" -f ($(if (Test-Path $c.P) { 'OK  ' } else { 'FAIL' }), $c.D))
+}
+
 # Write test into the rw share
 $testFile = 'W:\__windows_nfs_write_test__.txt'
 try {

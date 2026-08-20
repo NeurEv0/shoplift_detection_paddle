@@ -49,4 +49,14 @@ foreach ($s in $shares) {
 
 Log "=== Current mounts ==="
 & $mountExe 2>&1 | ForEach-Object { Log "  $_" }
+
+# Link the mounted drives into the repo (server-same relative layout).
+$repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+$linkScript = Join-Path $PSScriptRoot 'link_nfs_to_repo.ps1'
+if (Test-Path $linkScript) {
+    Log "=== running link_nfs_to_repo.ps1 (repo: $repo) ==="
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $linkScript 2>&1 | ForEach-Object { Log "  $_" }
+} else {
+    Log "WARN: link script not found: $linkScript"
+}
 Log "=== DONE ==="
