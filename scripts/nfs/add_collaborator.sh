@@ -15,10 +15,11 @@
 #   4. exportfs -ra 生效。
 #
 # 权限模型（实测于 Win11 客户端 + Linux NFS 服务端）：
-#   - 目录是"门"：770 + ACL 只允许本人与 ubuntu，其他协作者被服务器拒绝进入；
-#   - 文件层面 Windows NFS 客户端有本地权限模拟（匿名凭据落到 other 类），
-#     因此客户端挂载 outputs 必须用 fileaccess=777（见 mount_nfs_shares.ps1），
-#     新文件对 other 可读写；隔离由目录门保证，ubuntu 通过目录属主管理一切。
+#   - 本人：读写自己的 outputs/<缩写>/（rw 导出 + ACL rwx + 文件 777 供客户端本地检查）；
+#   - 其他协作者：整目录只读——未登记 IP 走 ro 导出（内核级只读）+ 目录 other=r-x；
+#   - ubuntu：目录属主，可管理一切（含删除子目录，Windows 客户端删不了子目录）。
+#   - Windows NFS 客户端有本地权限模拟（匿名凭据落到 other 类），
+#     因此客户端挂载 outputs 必须用 fileaccess=777（见 mount_nfs_shares.ps1）。
 set -euo pipefail
 
 NAME="${1:?usage: add_collaborator.sh <缩写> <客户端IP> [UID]}"
@@ -47,13 +48,13 @@ else
 fi
 UID_NUM=$(id -u "$NAME")
 
-# --- 2) 专属目录 + ACL（门：本人+ubuntu，other 无；default 继承写权限给文件） ---
+# --- 2) 专属目录 + ACL（本人+ubuntu 读写；other 只读；default 继承写权限给文件） ---
 mkdir -p "$OUT/$NAME"
 chown ubuntu:ubuntu "$OUT/$NAME"
-chmod 770 "$OUT/$NAME"
+chmod 775 "$OUT/$NAME"
 setfacl -m u:"$NAME":rwx -m u:ubuntu:rwx -m m::rwx "$OUT/$NAME"
 setfacl -m d:u:"$NAME":rwx -m d:u:ubuntu:rwx -m d:other::rwx -m d:m::rwx "$OUT/$NAME"
-echo "目录 $OUT/$NAME 就绪（770 + ACL）"
+echo "目录 $OUT/$NAME 就绪（775 + ACL：本人/ubuntu 读写，其他只读）"
 
 # --- 3) exports：把该 IP 的 rw 规则插入 outputs 行（放在 ro 兜底之前） ---
 if grep -qF "$CLIENT_IP(rw" "$EXPORTS"; then

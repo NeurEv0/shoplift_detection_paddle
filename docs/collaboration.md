@@ -235,7 +235,7 @@ python -m shoplift.cli.offline_analyze --output outputs/<你的名字>/<任务> 
 
 ### 2.6 outputs 专属目录权限模型（Windows 协作者）
 
-每位协作者在 `outputs/` 下有自己的专属目录（**名字缩写**，如 `outputs/wzf/`），**仅本人可读写，服务器（ubuntu）拥有全部管理权，其他协作者不可访问**。该模型已在 Win11 客户端 + Linux NFS 服务端实测验证。
+每位协作者在 `outputs/` 下有自己的专属目录（**名字缩写**，如 `outputs/wzf/`）：**本人对自己的目录有读写权限，对其余目录（含 `ubuntu/` 与其他协作者的目录）只有只读权限**；服务器（ubuntu）拥有全部管理权。该模型已在 Win11 客户端 + Linux NFS 服务端实测验证。
 
 **开通方式**（GPU 主机上，管理员执行一次；脚本自动完成建账号/建目录/ACL/导出规则）：
 
@@ -247,15 +247,15 @@ sudo bash scripts/nfs/add_collaborator.sh <缩写> <客户端IP>   # 如：sudo 
 脚本完成：
 
 - 创建系统账号 `<缩写>`（如 `wzf`，UID 自动分配；用于 NFS 身份映射，无登录需求）；
-- 创建 `outputs/<缩写>/`：属主 `ubuntu:ubuntu`、权限 770 + ACL（`<缩写>` rwx、`ubuntu` rwx、others 无，default ACL 继承）；
-- 在 `/etc/exports` 的 outputs 行追加该客户端 IP 的 **rw** 规则（`all_squash, anonuid=<UID>, anongid=1000`），未登记 IP 仍走 **ro** 兜底；
+- 创建 `outputs/<缩写>/`：属主 `ubuntu:ubuntu`、权限 775 + ACL（`<缩写>` rwx、`ubuntu` rwx、others **r-x**，default ACL 继承）；
+- 在 `/etc/exports` 的 outputs 行追加该客户端 IP 的 **rw** 规则（`all_squash, anonuid=<UID>, anongid=1000`），**未登记 IP 仍走 ro 兜底（内核级只读）**；
 - `exportfs -ra` 生效。
 
 **权限模型要点**（实测）：
 
-- **目录是"门"**：`outputs/<缩写>/` 770 + ACL 只允许本人与 ubuntu，其他协作者（其他 UID/IP）被服务器直接拒绝进入；`outputs/` 根目录 755、`outputs/ubuntu/` 750，协作者不能写；
-- **文件层面**：Windows NFS 客户端会做**本地权限模拟**（匿名凭据落到 "other" 类），因此 Windows 挂载 outputs 必须用 `-o anon,fileaccess=777`（`mount_nfs_shares.ps1` 已内置），新文件对 other 可读写，客户端才能读回/覆盖自己建的文件；隔离由目录门保证，不影响；
-- **ubuntu 管理权**：ubuntu 是目录属主，无需 sudo 即可增删改 `outputs/<缩写>/` 下任何内容；root 当然全权；
+- **本人读写自己的目录**：`outputs/<缩写>/` 775 + ACL（本人 rwx）；文件由客户端 `fileaccess=777` 创建（777 对 others 开放是 Windows NFS 客户端本地权限模拟的需要——匿名凭据落到 "other" 类，`mount_nfs_shares.ps1` 已内置）；
+- **其余目录只读（双层保证）**：① 未登记 IP 挂载 outputs 为 **ro 导出**（内核级，写入直接报 "Read-only file system"）；② 目录权限 others=r-x（`outputs/` 根 755、`outputs/ubuntu/` 755、各协作者目录 775），服务器拒绝任何非本人的写入；
+- **ubuntu 管理权**：ubuntu 是各目录属主，无需 sudo 即可增删改任何协作者目录下的内容；root 当然全权；
 - **已知限制**（Windows NFS 客户端）：协作者可创建/重命名/读写删除**文件**与创建子目录，但**无法删除子目录**（客户端本地检查拦截 RMDIR）——需要删目录时请 ubuntu 管理员在服务器执行 `rm -rf outputs/<缩写>/<目录>`；
 - **服务器本地注意**：`/home/ubuntu` 是 750，普通协作者账号无法在服务器本地进入数据目录（NFS 访问不受影响），如需服务器本地访问请管理员调整。
 
