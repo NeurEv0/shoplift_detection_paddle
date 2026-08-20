@@ -1,0 +1,69 @@
+# mount_nfs_shares.ps1
+# Mounts the 4 NFS shares from 10.200.10.10 (GPU host) onto drive letters.
+# Designed to run from Task Scheduler at boot/logon: waits for network, retries mounts.
+# NOTE: uses mount.exe explicitly because PowerShell aliases `mount` to New-PSDrive.
+$ErrorActionPreference = 'Continue'
+$log = Join-Path $env:TEMP 'nfs_mount.log'
+function Log($msg) { $line = "[{0}] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $msg; $line | Tee-Object -FilePath $log -Append }
+
+Log "=== NFS mount attempt (elevated: $([Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))) ==="
+
+$mountExe = "$env:SystemRoot\System32\mount.exe"
+if (-not (Test-Path $mountExe)) {
+    Log "FATAL: $mountExe not found - NFS client not installed? (feature enabled but reboot may be required)"
+    exit 1
+}
+
+# Wait for the network stack (up to 60s) so a boot-time run does not race the NIC.
+for ($i = 1; $i -le 12; $i++) {
+    if (Test-Connection -ComputerName 10.200.10.10 -Count 1 -Quiet -ErrorAction SilentlyContinue) { Log "ping 10.200.10.10 OK (attempt $i)"; break }
+    Log "ping 10.200.10.10 failed (attempt $i), waiting 5s..."
+    Start-Sleep -Seconds 5
+}
+
+# NOTE on X: options: outputs is rw for this host (server maps this IP to the
+# collaborator UID, see scripts/nfs/add_collaborator.sh). fileaccess=777 is
+# required so files created on the server are world-writable: the Windows NFS
+# client performs LOCAL permission checks using the mapped ACLs and an
+# anonymous credential lands on the "other" class - files must be readable/
+# writable by "other" for the owner to read them back / overwrite them.
+# Isolation is enforced at DIRECTORY level (server POSIX perms/ACLs), not file.
+$shares = @(
+    @{ Letter = 'Z:'; Unc = '\\10.200.10.10\home\ubuntu\data_1t\shoplift_detection_paddle\datasets'; Options = 'anon' },
+    @{ Letter = 'Y:'; Unc = '\\10.200.10.10\home\ubuntu\data_1t\shoplift_detection_paddle\models';      Options = 'anon' },
+    @{ Letter = 'X:'; Unc = '\\10.200.10.10\home\ubuntu\data_1t\shoplift_detection_paddle\outputs';     Options = 'anon,fileaccess=777' },
+    @{ Letter = 'W:'; Unc = '\\10.200.10.10\home\ubuntu\data_1t\shoplift_detection_paddle\datasets_annotation'; Options = 'anon' }
+)
+
+foreach ($s in $shares) {
+    $mounted = $false
+    for ($try = 1; $try -le 3 -and -not $mounted; $try++) {
+        $existing = & $mountExe 2>&1 | Select-String -Pattern ('^' + [regex]::Escape($s.Letter))
+        if ($existing) {
+            Log "SKIP $($s.Letter) already mounted: $($existing.Line.Trim())"
+            $mounted = $true
+            break
+        }
+        Log "MOUNT (try $try) $($s.Letter) <- $($s.Unc) [-o $($s.Options)]"
+        $out = & $mountExe -o $s.Options $s.Unc $s.Letter 2>&1
+        $code = $LASTEXITCODE
+        foreach ($l in $out) { Log "  out: $l" }
+        Log "  exit: $code"
+        if ($code -eq 0) { $mounted = $true }
+        else { Start-Sleep -Seconds 10 }
+    }
+}
+
+Log "=== Current mounts ==="
+& $mountExe 2>&1 | ForEach-Object { Log "  $_" }
+
+# Link the mounted drives into the repo (server-same relative layout).
+$repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+$linkScript = Join-Path $PSScriptRoot 'link_nfs_to_repo.ps1'
+if (Test-Path $linkScript) {
+    Log "=== running link_nfs_to_repo.ps1 (repo: $repo) ==="
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $linkScript 2>&1 | ForEach-Object { Log "  $_" }
+} else {
+    Log "WARN: link script not found: $linkScript"
+}
+Log "=== DONE ==="
