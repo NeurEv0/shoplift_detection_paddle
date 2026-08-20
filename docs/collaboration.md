@@ -150,12 +150,12 @@ Enable-WindowsOptionalFeature -Online -FeatureName NFS-Administration -All -NoRe
 Get-Command mount.exe   # 存在即正常
 ```
 
-2）映射盘符（管理员 PowerShell）。**注意必须写 `mount.exe`**——PowerShell 内置别名把 `mount` 指向 `New-PSDrive`，直接写 `mount -o ...` 会报 `parameter name 'o' is ambiguous`：
+2）映射盘符（管理员 PowerShell）。**注意必须写 `mount.exe`**——PowerShell 内置别名把 `mount` 指向 `New-PSDrive`，直接写 `mount -o ...` 会报 `parameter name 'o' is ambiguous`。**outputs（X:）必须带 `fileaccess=777`**（原因见 2.5 权限模型；否则 Windows 客户端读不回/覆盖不了自己建的文件）：
 
 ```powershell
 mount.exe -o anon \\10.200.10.10\home\ubuntu\data_1t\shoplift_detection_paddle\datasets Z:
 mount.exe -o anon \\10.200.10.10\home\ubuntu\data_1t\shoplift_detection_paddle\models Y:
-mount.exe -o anon \\10.200.10.10\home\ubuntu\data_1t\shoplift_detection_paddle\outputs X:
+mount.exe -o anon,fileaccess=777 \\10.200.10.10\home\ubuntu\data_1t\shoplift_detection_paddle\outputs X:
 mount.exe -o anon \\10.200.10.10\home\ubuntu\data_1t\shoplift_detection_paddle\datasets_annotation W:
 ```
 
@@ -232,6 +232,32 @@ python -m shoplift.cli.offline_analyze --output outputs/<你的名字>/<任务> 
 ```
 
 其它 CLI（`video_infer_visualize`、`hand_crop_visualize`、`dcsass_eval`）同样用 `--output outputs/<你的名字>/<任务>` 指定。后续 GPU 任务排队会按作业自动设置 `SHOPLIFT_USER`。
+
+### 2.6 outputs 专属目录权限模型（Windows 协作者）
+
+每位协作者在 `outputs/` 下有自己的专属目录（**名字缩写**，如 `outputs/wzf/`），**仅本人可读写，服务器（ubuntu）拥有全部管理权，其他协作者不可访问**。该模型已在 Win11 客户端 + Linux NFS 服务端实测验证。
+
+**开通方式**（GPU 主机上，管理员执行一次；脚本自动完成建账号/建目录/ACL/导出规则）：
+
+```bash
+# 在服务器仓库目录下
+sudo bash scripts/nfs/add_collaborator.sh <缩写> <客户端IP>   # 如：sudo bash scripts/nfs/add_collaborator.sh wzf 10.200.2.244
+```
+
+脚本完成：
+
+- 创建系统账号 `<缩写>`（如 `wzf`，UID 自动分配；用于 NFS 身份映射，无登录需求）；
+- 创建 `outputs/<缩写>/`：属主 `ubuntu:ubuntu`、权限 770 + ACL（`<缩写>` rwx、`ubuntu` rwx、others 无，default ACL 继承）；
+- 在 `/etc/exports` 的 outputs 行追加该客户端 IP 的 **rw** 规则（`all_squash, anonuid=<UID>, anongid=1000`），未登记 IP 仍走 **ro** 兜底；
+- `exportfs -ra` 生效。
+
+**权限模型要点**（实测）：
+
+- **目录是"门"**：`outputs/<缩写>/` 770 + ACL 只允许本人与 ubuntu，其他协作者（其他 UID/IP）被服务器直接拒绝进入；`outputs/` 根目录 755、`outputs/ubuntu/` 750，协作者不能写；
+- **文件层面**：Windows NFS 客户端会做**本地权限模拟**（匿名凭据落到 "other" 类），因此 Windows 挂载 outputs 必须用 `-o anon,fileaccess=777`（`mount_nfs_shares.ps1` 已内置），新文件对 other 可读写，客户端才能读回/覆盖自己建的文件；隔离由目录门保证，不影响；
+- **ubuntu 管理权**：ubuntu 是目录属主，无需 sudo 即可增删改 `outputs/<缩写>/` 下任何内容；root 当然全权；
+- **已知限制**（Windows NFS 客户端）：协作者可创建/重命名/读写删除**文件**与创建子目录，但**无法删除子目录**（客户端本地检查拦截 RMDIR）——需要删目录时请 ubuntu 管理员在服务器执行 `rm -rf outputs/<缩写>/<目录>`；
+- **服务器本地注意**：`/home/ubuntu` 是 750，普通协作者账号无法在服务器本地进入数据目录（NFS 访问不受影响），如需服务器本地访问请管理员调整。
 
 ## 3. GPU 算力约定
 
