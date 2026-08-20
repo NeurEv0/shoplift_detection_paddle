@@ -41,8 +41,14 @@ foreach ($l in $links) {
     if (-not (Test-Path $l.Target)) {
         Log "WARN $($l.Name): target $($l.Target) not mounted - symlink created anyway"
     }
-    cmd /c mklink /D "$path" "$($l.Target)" 2>&1 | ForEach-Object { Log "  $_" }
-    Log "LINK $($l.Name) -> $($l.Target) : resolves=$([bool](Test-Path $path))"
+    try {
+        cmd /c mklink /D "$path" "$($l.Target)" 2>&1 | ForEach-Object { Log "  $_" }
+        Log "LINK $($l.Name) -> $($l.Target) : resolves=$([bool](Test-Path $path))"
+    } catch {
+        # Symlink creation needs admin (or Developer Mode); mounts themselves do not.
+        # If symlinks already exist (created once elevated), this is harmless.
+        Log "WARN $($l.Name): could not create symlink without elevation: $($_.Exception.Message)"
+    }
 }
 
 # 2) Mark git-tracked lightweight files under datasets/models as skip-worktree

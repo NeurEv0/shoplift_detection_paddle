@@ -177,16 +177,18 @@ powershell -ExecutionPolicy Bypass -File scripts\windows\link_nfs_to_repo.ps1
 - 在仓库根创建目录符号链接：`datasets → Z:\`、`models → Y:\`、`outputs → X:\`、`datasets_annotation → W:\`（此后 `./models/paddledetection/person_mot` 等相对路径直接可用）；
 - 对 `datasets/`、`models/` 下 7 个 git 跟踪的轻量文件设置 `git update-index --skip-worktree`，并把 4 个符号链接名加入 `.git/info/exclude`（两者均为**本仓库本地设置，不进 Git**），保证 `git status` 依然干净。
 
-> 符号链接创建需管理员权限（本脚本已由管理员 PowerShell 运行）；如系统未开启开发者模式，管理员运行 `mklink /D` 无碍。`datasets`/`models` 目录里被符号链接"遮住"的 git 跟踪文件内容与服务器共享内一致（服务器仓库与共享同源），`git status` 不会出现删除/修改。
+> 符号链接创建需管理员权限（或用开发者模式）：首次以**管理员** PowerShell 运行本脚本一次即可，符号链接会持久保留；`git` 相关设置（skip-worktree / exclude）无需管理员。`datasets`/`models` 目录里被符号链接"遮住"的 git 跟踪文件内容与服务器共享内一致（服务器仓库与共享同源），`git status` 不会出现删除/修改。
 
-5）（可选）开机自动挂载：仓库提供了现成脚本，管理员 PowerShell 执行一次即可注册计划任务 `ShopliftNFSMount`（开机/登录后自动**挂载盘符并重建仓库链接**，日志写到 `%TEMP%\nfs_mount.log` 与 `%TEMP%\nfs_link.log`）：
+5）（可选）开机自动挂载：注册计划任务 `ShopliftNFSMount`。**任务必须以非提权（RunLevel Limited）运行**——Windows NFS 盘符按登录会话隔离，提权会话里挂载的盘符在资源管理器/普通程序里看不到（点开仓库目录会报"位置不可用"）。`mount.exe` 无需管理员权限，因此任务非提权即可正常挂载（符号链接已由第 4 步建好，任务只负责重挂盘符与重放 git 设置）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\windows\register_nfs_mount_task.ps1
-# 手动执行挂载/验证：
+# 手动执行挂载/验证（普通 PowerShell 即可）：
 powershell -ExecutionPolicy Bypass -File scripts\windows\mount_nfs_shares.ps1
 powershell -ExecutionPolicy Bypass -File scripts\windows\verify_nfs_mount.ps1
 ```
+
+> 若本机已存在旧版（提权）任务导致注册报"拒绝访问"，用管理员 PowerShell 重跑一次注册脚本覆盖即可。
 
 注意：
 
@@ -194,6 +196,7 @@ powershell -ExecutionPolicy Bypass -File scripts\windows\verify_nfs_mount.ps1
 - 只读共享（`datasets`/`models`/`outputs`）由服务端强制只读（客户端写入报"介质受写入保护"属正常）。
 - Windows NFS 挂载**重启后不保留**，需要重新挂载（用第 5 步的计划任务即可；符号链接本身会保留，盘符挂上后自动恢复解析）。
 - 若符号链接因盘符未挂载暂时不可解析属正常：先执行挂载，再访问仓库相对路径。
+- 若 `mount` 报"此命令的另一个实例已在运行"：有残留的 `mount.exe`/`umount.exe` 进程（常见于卸载时仍有文件句柄），结束该进程后重试。
 
 ### 2.4 Windows 家庭版（Home）替代方案
 
@@ -240,6 +243,7 @@ python -m shoplift.cli.offline_analyze --output outputs/<你的名字>/<任务> 
 - Windows 上执行 `mount -o ...` 报 `parameter name 'o' is ambiguous`：PowerShell 的 `mount` 是 `New-PSDrive` 别名，必须写 `mount.exe`（或 `cmd /c "mount -o ..."`）。
 - Windows 上功能已启用但找不到 `mount.exe`：还缺 `ClientForNFS-Infrastructure` 功能（Win11 25H2 实测必需），按 2.3 第 1 步全部启用。
 - Windows 上仓库相对路径（如 `./models/paddledetection/...`）访问不到数据：Windows NFS 只能挂盘符，需按 2.3 第 4 步执行 `link_nfs_to_repo.ps1` 建立 `models` 等目录符号链接；`git status` 的干净由 `skip-worktree` + `.git/info/exclude` 保证（本机设置，不影响他人）。
+- Windows 资源管理器点击仓库的 `datasets`/`models` 等目录报"位置不可用"：挂载发生在**提权会话**里，普通会话看不到 NFS 盘符（盘符按登录会话隔离）。用第 5 步的**非提权**计划任务（或普通 PowerShell 手动执行 `mount_nfs_shares.ps1`）重新挂载即可；若手动挂载报"另一个实例已在运行"，先结束残留的 `mount.exe`/`umount.exe` 进程。
 - Windows 上 `mklink /J` 报"完成该操作需要本地卷"、或 junction 访问报"重分析点缓冲区中的数据无效"：NTFS junction 不能指向 NFS/远程卷，属系统限制，请改用 `mklink /D` 符号链接（`link_nfs_to_repo.ps1` 已自动处理）。
 - `git clone` / `pip install` 超时或 SSL 报错、但浏览器能打开 GitHub：本机有系统代理时 git/pip 不读注册表代理，需显式配置：`git config --global http.proxy http://127.0.0.1:7897`（端口按本机代理改），pip 侧设环境变量 `HTTP_PROXY`/`HTTPS_PROXY`。
 - `pre-commit run --all-files` 在 `src/PaddleDetection-release-2.9` 下报大量 ruff 错误：该目录是 vendored 第三方代码，不在协作 lint 范围；提交前自检用 `ruff check shoplift scripts`，pre-commit 钩子只检查本次暂存的文件。
