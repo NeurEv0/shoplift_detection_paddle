@@ -279,9 +279,10 @@ def read_label_list(path: Path = DEFAULT_LABEL_LIST) -> tuple[str, ...]:
     path = _resolve_from_root(path)
     if not path.exists():
         raise FileNotFoundError(f"label list does not exist: {path}")
+    # utf-8-sig tolerates the UTF-8 BOM that Windows editors prepend to text files.
     labels = tuple(
         line.strip()
-        for line in path.read_text(encoding="utf-8").splitlines()
+        for line in path.read_text(encoding="utf-8-sig").splitlines()
         if line.strip() and not line.strip().startswith("#")
     )
     duplicates = [label for label in labels if labels.count(label) > 1]

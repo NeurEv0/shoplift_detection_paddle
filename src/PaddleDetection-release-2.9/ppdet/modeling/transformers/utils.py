@@ -86,11 +86,13 @@ def deformable_attention_core_func(value, value_spatial_shapes,
     bs, _, n_head, c = value.shape
     _, Len_q, _, n_levels, n_points, _ = sampling_locations.shape
 
-    split_shape = [h * w for h, w in value_spatial_shapes]
+    spatial_shapes = value_spatial_shapes.numpy().tolist() if isinstance(
+        value_spatial_shapes, paddle.Tensor) else value_spatial_shapes
+    split_shape = [h * w for h, w in spatial_shapes]
     value_list = value.split(split_shape, axis=1)
     sampling_grids = 2 * sampling_locations - 1
     sampling_value_list = []
-    for level, (h, w) in enumerate(value_spatial_shapes):
+    for level, (h, w) in enumerate(spatial_shapes):
         # N_, H_*W_, M_, D_ -> N_, H_*W_, M_*D_ -> N_, M_*D_, H_*W_ -> N_*M_, D_, H_, W_
         value_l_ = value_list[level].flatten(2).transpose([0, 2, 1]).reshape(
             [bs * n_head, c, h, w])

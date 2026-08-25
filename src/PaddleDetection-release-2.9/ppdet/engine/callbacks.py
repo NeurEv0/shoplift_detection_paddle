@@ -193,14 +193,13 @@ class Checkpointer(Callback):
         save_name = None
         if dist.get_world_size() < 2 or dist.get_rank() == 0:
             end_epoch = self.model.cfg.epoch
-            save_name = str(epoch_id) if epoch_id != end_epoch - 1 else "model_final"
+            save_name = str(epoch_id)
             if mode == 'train':
                 end_epoch = self.model.cfg.epoch
                 if (
                         epoch_id + 1
                 ) % self.model.cfg.snapshot_epoch == 0 or epoch_id == end_epoch - 1:
-                    save_name = str(
-                        epoch_id) if epoch_id != end_epoch - 1 else "model_final"
+                    save_name = str(epoch_id)
                     weight = self.weight.state_dict()
             elif mode == 'eval':
                 for metric in self.model._metrics:
@@ -272,6 +271,15 @@ class Checkpointer(Callback):
                         if self.uniform_output_enabled:
                             self.model.export(output_dir=os.path.join(self.save_dir, save_name, "inference"), for_fd=True)
                             gc.collect()
+                        if epoch_id == end_epoch - 1:
+                            # additionally save model_final for the last epoch
+                            save_model(
+                                status['weight'],
+                                self.model.optimizer,
+                                os.path.join(self.save_dir, "model_final") if self.uniform_output_enabled else self.save_dir,
+                                "model_final",
+                                epoch_id + 1,
+                                ema_model=weight)
                     else:
                         # save model(student model) and ema_model(teacher model)
                         # in DenseTeacher SSOD, the teacher model will be higher,
@@ -285,6 +293,14 @@ class Checkpointer(Callback):
                             save_name,
                             epoch_id + 1,
                             ema_model=student_model)
+                        if epoch_id == end_epoch - 1:
+                            save_model(
+                                student_model,
+                                self.model.optimizer,
+                                self.save_dir,
+                                "model_final",
+                                epoch_id + 1,
+                                ema_model=teacher_model)
                         del teacher_model
                         del student_model
                 else:
@@ -293,6 +309,9 @@ class Checkpointer(Callback):
                     if self.uniform_output_enabled:
                         self.model.export(output_dir=os.path.join(self.save_dir, save_name, "inference"), for_fd=True)
                         gc.collect()
+                    if epoch_id == end_epoch - 1:
+                        save_model(weight, self.model.optimizer, os.path.join(self.save_dir, "model_final") if self.uniform_output_enabled else self.save_dir,
+                                   "model_final", epoch_id + 1)
 
 
 class WiferFaceEval(Callback):
@@ -334,10 +353,11 @@ class VisualDLWriter(Callback):
         if dist.get_world_size() < 2 or dist.get_rank() == 0:
             if mode == 'train':
                 training_staus = status['training_staus']
+                vdl_loss_step = status['epoch_id'] * status[
+                    'steps_per_epoch'] + status['step_id']
                 for loss_name, loss_value in training_staus.get().items():
                     self.vdl_writer.add_scalar(loss_name, loss_value,
-                                               self.vdl_loss_step)
-                self.vdl_loss_step += 1
+                                               vdl_loss_step)
             elif mode == 'test':
                 ori_image = status['original_image']
                 result_image = status['result_image']
@@ -363,13 +383,69 @@ class VisualDLWriter(Callback):
                         mota = float(res.split(' ')[-9].rstrip("%")) / 100
                         self.vdl_writer.add_scalar("mot-mota",
                                                     mota,
-                                                    self.vdl_mAP_step)
+                                                    status['epoch_id'])
                     else:
                         for key, map_value in metric.get_results().items():
                             self.vdl_writer.add_scalar("{}-mAP".format(key),
                                                     map_value[0],
-                                                    self.vdl_mAP_step)
-                self.vdl_mAP_step += 1
+                                                    status['epoch_id'])
+
+
+class TensorBoardWriter(Callback):
+    """
+    Use TensorBoard to log train loss (per epoch), val loss and eval metrics.
+    """
+
+    def __init__(self, model):
+        super(TensorBoardWriter, self).__init__(model)
+        try:
+            from tensorboardX import SummaryWriter
+        except Exception as e:
+            logger.error(
+                'tensorboardX not found, please install tensorboardX. '
+                'for example: `pip install tensorboardX`.')
+            raise e
+        self.tb_writer = SummaryWriter(
+            model.cfg.get('tensorboard_log_dir', 'tensorboard_log'))
+        self._train_loss_sum = {}
+        self._train_loss_count = 0
+
+    def on_step_end(self, status):
+        mode = status['mode']
+        if dist.get_world_size() < 2 or dist.get_rank() == 0:
+            if mode == 'train':
+                # accumulate per-step losses, flush once per epoch
+                for k, v in status['training_staus'].get().items():
+                    self._train_loss_sum[k] = self._train_loss_sum.get(
+                        k, 0.) + float(v)
+                self._train_loss_count += 1
+
+    def on_epoch_end(self, status):
+        mode = status['mode']
+        if dist.get_world_size() < 2 or dist.get_rank() == 0:
+            if mode == 'train':
+                if self._train_loss_count > 0:
+                    step = status['epoch_id']
+                    for k, v in self._train_loss_sum.items():
+                        self.tb_writer.add_scalar('train/{}'.format(k),
+                                                  v / self._train_loss_count,
+                                                  step)
+                    self._train_loss_sum = {}
+                    self._train_loss_count = 0
+            elif mode == 'eval':
+                step = status['epoch_id']
+                for metric in self.model._metrics:
+                    res = metric.get_results()
+                    if 'bbox' in res:
+                        self.tb_writer.add_scalar('eval/bbox-mAP',
+                                                  res['bbox'][0], step)
+                        self.tb_writer.add_scalar('eval/bbox-AP50',
+                                                  res['bbox'][1], step)
+                        self.tb_writer.add_scalar('eval/bbox-AP75',
+                                                  res['bbox'][2], step)
+                if 'val_loss' in status:
+                    self.tb_writer.add_scalar('eval/val_loss',
+                                              status['val_loss'], step)
 
 
 class WandbCallback(Callback):

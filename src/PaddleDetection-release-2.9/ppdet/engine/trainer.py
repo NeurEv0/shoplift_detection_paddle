@@ -53,7 +53,7 @@ from ppdet.modeling.post_process import multiclass_nms
 from ppdet.modeling.lane_utils import imshow_lanes
 from ppdet.modeling.mot.utils import write_mot_results, MOTTimer
 
-from .callbacks import Callback, ComposeCallback, LogPrinter, Checkpointer, WiferFaceEval, VisualDLWriter, SniperProposalsGenerator, WandbCallback, SemiCheckpointer, SemiLogPrinter
+from .callbacks import Callback, ComposeCallback, LogPrinter, Checkpointer, WiferFaceEval, VisualDLWriter, SniperProposalsGenerator, WandbCallback, SemiCheckpointer, SemiLogPrinter, TensorBoardWriter
 from .export_utils import _dump_infer_config, _prune_input_spec, apply_to_static
 from .naive_sync_bn import convert_syncbn, convert_bn
 
@@ -276,6 +276,8 @@ class Trainer(object):
                 self._callbacks = [LogPrinter(self), Checkpointer(self)]
             if self.cfg.get('use_vdl', False):
                 self._callbacks.append(VisualDLWriter(self))
+            if self.cfg.get('use_tensorboard', False):
+                self._callbacks.append(TensorBoardWriter(self))
             if self.cfg.get('save_proposals', False):
                 self._callbacks.append(SniperProposalsGenerator(self))
             if self.cfg.get('use_wandb', False) or 'wandb' in self.cfg:
@@ -283,6 +285,8 @@ class Trainer(object):
             self._compose_callback = ComposeCallback(self._callbacks)
         elif self.mode == 'eval':
             self._callbacks = [LogPrinter(self)]
+            if self.cfg.get('use_tensorboard', False):
+                self._callbacks.append(TensorBoardWriter(self))
             # if self.cfg.metric == 'WiderFace':
             #     self._callbacks.append(WiferFaceEval(self))
             self._compose_callback = ComposeCallback(self._callbacks)
@@ -742,6 +746,8 @@ class Trainer(object):
             flops_loader = create('{}Reader'.format(self.mode.capitalize()))(
                 self.dataset, self.cfg.worker_num, self._eval_batch_sampler)
             self._flops(flops_loader)
+        val_loss_sum = 0.0
+        val_loss_count = 0
         for step_id, data in enumerate(loader):
             self.status['step_id'] = step_id
             self._compose_callback.on_step_begin(self.status)
@@ -757,6 +763,16 @@ class Trainer(object):
             else:
                 outs = self.model(data)
 
+            # compute val loss (training-mode forward, no backward)
+            if self.cfg.get('eval_with_loss', False):
+                self.model.train()
+                with paddle.no_grad():
+                    losses = self.model(data)
+                self.model.eval()
+                if 'loss' in losses:
+                    val_loss_sum += float(losses['loss'].numpy().mean())
+                    val_loss_count += 1
+
             # update metrics
             for metric in self._metrics:
                 metric.update(data, outs)
@@ -770,6 +786,7 @@ class Trainer(object):
 
         self.status['sample_num'] = sample_num
         self.status['cost_time'] = time.time() - tic
+        self.status['val_loss'] = val_loss_sum / val_loss_count if val_loss_count else 0.0
 
         # accumulate metric to log out
         for metric in self._metrics:
