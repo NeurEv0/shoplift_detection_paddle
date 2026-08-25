@@ -39,7 +39,7 @@ import shutil
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Sequence
 
 
 ROOT = Path(__file__).resolve().parents[1]
