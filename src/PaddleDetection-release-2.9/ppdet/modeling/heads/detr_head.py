@@ -639,6 +639,64 @@ class RTDETRv3Head(nn.Layer):
                 return loss
             else:
                 dn_out_bboxes, dn_out_logits = None, None
+                if self.o2m_branch:
+                    # Paddle 3.x+PIR workaround: denoising disabled -> dn_meta is None,
+                    # but keep the O2M branch alive (split off the o2m queries and
+                    # supervise them densely via self.loss(o2m=...)).
+                    total_dec_queries = dec_out_bboxes.shape[2]
+                    total_enc_queries = enc_topk_bboxes.shape[1]
+                    dec_out_bboxes, dec_out_bboxes_o2m = paddle.split(
+                        dec_out_bboxes,
+                        [total_dec_queries - self.num_queries_o2m,
+                         self.num_queries_o2m],
+                        axis=2)
+                    dec_out_logits, dec_out_logits_o2m = paddle.split(
+                        dec_out_logits,
+                        [total_dec_queries - self.num_queries_o2m,
+                         self.num_queries_o2m],
+                        axis=2)
+                    enc_topk_bboxes, enc_topk_bboxes_o2m = paddle.split(
+                        enc_topk_bboxes,
+                        [total_enc_queries - self.num_queries_o2m,
+                         self.num_queries_o2m],
+                        axis=1)
+                    enc_topk_logits, enc_topk_logits_o2m = paddle.split(
+                        enc_topk_logits,
+                        [total_enc_queries - self.num_queries_o2m,
+                         self.num_queries_o2m],
+                        axis=1)
+
+                    out_bboxes_o2m = paddle.concat(
+                        [enc_topk_bboxes_o2m.unsqueeze(0), dec_out_bboxes_o2m])
+                    out_logits_o2m = paddle.concat(
+                        [enc_topk_logits_o2m.unsqueeze(0), dec_out_logits_o2m])
+                    loss = {}
+                    for key, value in self.loss(
+                            out_bboxes_o2m,
+                            out_logits_o2m,
+                            inputs['gt_bbox'],
+                            inputs['gt_class'],
+                            dn_out_bboxes=None,
+                            dn_out_logits=None,
+                            dn_meta=None,
+                            o2m=self.o2m).items():
+                        loss['{}_o2m_branch'.format(key)] = value
+                    # main loss on the remaining (non-o2m) queries
+                    out_bboxes = paddle.concat(
+                        [enc_topk_bboxes.unsqueeze(0), dec_out_bboxes])
+                    out_logits = paddle.concat(
+                        [enc_topk_logits.unsqueeze(0), dec_out_logits])
+                    for key, value in self.loss(
+                            out_bboxes,
+                            out_logits,
+                            inputs['gt_bbox'],
+                            inputs['gt_class'],
+                            dn_out_bboxes=None,
+                            dn_out_logits=None,
+                            dn_meta=None,
+                            gt_score=inputs.get('gt_score', None)).items():
+                        loss[key] = loss.get(key, paddle.zeros([1])) + value
+                    return loss
 
             out_bboxes = paddle.concat(
                 [enc_topk_bboxes.unsqueeze(0), dec_out_bboxes])

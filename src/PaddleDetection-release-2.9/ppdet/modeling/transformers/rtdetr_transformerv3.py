@@ -518,6 +518,11 @@ class RTDETRTransformerv3(nn.Layer):
                 denoising_bbox_unacts.append(denoising_bbox_unact)
                 attn_masks.append(attn_mask)
                 dn_metas.append(dn_meta)
+            # Paddle 3.x+PIR workaround: with denoising disabled (num_denoising /
+            # num_noise_denoising <= 0) every group returns None. Collapse the all-None
+            # lists to None so downstream takes the plain (denoising-free) path.
+            if all(dn is None for dn in dn_metas):
+                denoising_classes, denoising_bbox_unacts, attn_masks, dn_metas = None, None, None, None
         else:
             denoising_classes, denoising_bbox_unacts, attn_masks, dn_metas = None, None, None, None
 
@@ -538,14 +543,23 @@ class RTDETRTransformerv3(nn.Layer):
                     new_mask = new_mask >= 0.0
                     new_attn_mask[begin: end, begin: end] = new_mask
                 else:
-                    end = end + attn_masks[g_id].shape[1]
-                    dn_size, q_size = dn_metas[g_id]['dn_num_split']
-                    if g_id > 0:
-                        new_mask = new_mask > 0.1
+                    if dn_metas is None:
+                        # denoising disabled: plain per-group self-attention mask
+                        end = end + self.num_queries[g_id]
+                        if g_id > 0:
+                            new_mask = new_mask > 0.1
+                        else:
+                            new_mask = new_mask >= 0.0
+                        new_attn_mask[begin: end, begin: end] = new_mask
                     else:
-                        new_mask = new_mask >= 0.0
-                    attn_masks[g_id][dn_size: dn_size + q_size, dn_size: dn_size + q_size] = new_mask
-                    new_attn_mask[begin: end, begin: end] = attn_masks[g_id]
+                        end = end + attn_masks[g_id].shape[1]
+                        dn_size, q_size = dn_metas[g_id]['dn_num_split']
+                        if g_id > 0:
+                            new_mask = new_mask > 0.1
+                        else:
+                            new_mask = new_mask >= 0.0
+                        attn_masks[g_id][dn_size: dn_size + q_size, dn_size: dn_size + q_size] = new_mask
+                        new_attn_mask[begin: end, begin: end] = attn_masks[g_id]
                 begin = end
             attn_masks = new_attn_mask
 

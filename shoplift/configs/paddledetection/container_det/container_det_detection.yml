@@ -6,6 +6,7 @@ TrainDataset:
   image_dir: images/train
   anno_path: annotations/instances_train.json
   dataset_dir: ../../datasets/container_det
+  allow_empty: false
   data_fields: ['image', 'gt_bbox', 'gt_class', 'is_crowd']
 
 EvalDataset:
@@ -13,7 +14,8 @@ EvalDataset:
   image_dir: images/val
   anno_path: annotations/instances_val.json
   dataset_dir: ../../datasets/container_det
-  allow_empty: true
+  allow_empty: false
+  data_fields: ['image', 'gt_bbox', 'gt_class', 'is_crowd']
 
 TestDataset:
   name: ImageFolder
