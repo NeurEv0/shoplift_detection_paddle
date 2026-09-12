@@ -1,0 +1,31 @@
+# PP-TSM open × 管线 融合与上报配置(由 shoplift.cli.fuse_report 读取)
+# fusion 节字段与 shoplift.fusion.fusion_engine.FusionConfig 一一对应(未知键报错)。
+# inference 节为 PP-TSM open 生产推理参数。
+
+fusion:
+  # 事件化(与 v2 ep26 定版一致):单窗 open 概率阈值 + 连续窗数
+  theta: 0.6
+  min_consecutive_windows: 3
+  # 商品判定门:拆包窗口内「连续 >= N 帧」holding_product 才算"拆的是商品"
+  # 14 帧 ≈ 0.56s:滤掉拆筷子(4/13 帧)、拆自己物品(6 帧)等短持有误报;
+  # 真拆商品(steal_2 的 person-95=286 帧 / person-111=30 帧)保留。
+  min_product_confirm_frames: 14
+  # 构建 holding_product 证据时,手状态分数下限(与管线代理区域阈值一致)
+  min_holding_product_score: 0.5
+  # 拆包装段合并:时间重叠或间隔 <= 该值(ms)视为同一次拆包
+  merge_temporal_gap_ms: 5000
+  # 不同 track 合并时需 bbox IoU >= 该值(确认是同一人因轨迹碎片换了 id)
+  merge_iou_threshold: 0.3
+  # 独立拆包事件(每个合并后的拆包段都产出)的配置
+  standalone_event_type: package_opening
+  standalone_risk_score: 0.80
+
+inference:
+  # 人像时间线重采样 fps —— §9.4 红线:必须与训练 master cadence 一致。
+  # 已核对(2026-08 本地 .dsh/tmp/master_meta.json):steal_2_d03 训练域 open 正样本
+  # master src_frames 严格每 8 源帧一步 → 25fps ÷ 8 = 3.125fps(每帧 0.32s,16 帧窗口 ≈ 5.12s)。
+  timeline_fps: 3.125
+  device: gpu
+  win: 16
+  stride: 2
+  crop_padding: 0.15

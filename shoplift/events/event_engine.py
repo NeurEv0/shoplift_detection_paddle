@@ -6,6 +6,10 @@ from dataclasses import dataclass, field, replace
 from typing import Sequence
 
 from shoplift.core.types import RelationEvidence, RiskEvent
+from shoplift.events.nested_concealment import (
+    NestedConcealmentConfig,
+    NestedConcealmentDetector,
+)
 from shoplift.events.state_machine import (
     ActionStateSnapshot,
     CONFIRMED_RISK_EVENT,
@@ -61,6 +65,8 @@ class ShopliftingEventEngine:
         state_machine: SuspiciousActionStateMachine | None = None,
         risk_scorer: RiskScorer | None = None,
         rule_validator: RiskRuleValidator | None = None,
+        nested_concealment_config: NestedConcealmentConfig | None = None,
+        nested_concealment_detector: NestedConcealmentDetector | None = None,
     ) -> None:
         self.association_config = association_config or AssociationConfig()
         self.relation_associator = relation_associator or ShopliftingRelationAssociator(self.association_config)
@@ -69,15 +75,48 @@ class ShopliftingEventEngine:
         self.rule_validator = rule_validator or RiskRuleValidator()
         self._emitted_keys: set[tuple[str, str, str]] = set()
         self._bulk_windows: dict[tuple[str, str], dict[str, _BulkWindowEntry]] = {}
+        self.nested_concealment_config = nested_concealment_config or NestedConcealmentConfig()
+        self.nested_concealment_detector = (
+            nested_concealment_detector
+            if nested_concealment_detector is not None
+            else NestedConcealmentDetector(self.nested_concealment_config)
+        )
 
     def process_frame(self, frame: AssociationFrame) -> EventEngineResult:
         association_result = self.relation_associator.update(frame)
-        return self.process_relations(
+        result = self.process_relations(
             relations=association_result.relations,
             frame_id=frame.frame_id,
             timestamp_ms=frame.timestamp_ms,
             camera_id=frame.camera_id,
             association_result=association_result,
+        )
+        nested_events = [
+            event
+            for event in self.nested_concealment_detector.update(frame)
+            if event is not None
+        ]
+        if not nested_events:
+            return result
+        validated: list[RiskEvent] = []
+        for event in nested_events:
+            validation = self.rule_validator.apply(event)
+            if validation.event is None:
+                continue
+            normalized = validation.event
+            if validation.violations:
+                metadata = dict(normalized.metadata)
+                metadata["rule_violations"] = [violation.code for violation in validation.violations]
+                metadata["rule_changed"] = validation.changed
+                normalized = replace(normalized, metadata=metadata)
+            validated.append(normalized)
+        return replace(
+            result,
+            events=result.events + tuple(validated),
+            metadata={
+                **result.metadata,
+                "nested_concealment_event_count": len(validated),
+            },
         )
 
     def process_relations(

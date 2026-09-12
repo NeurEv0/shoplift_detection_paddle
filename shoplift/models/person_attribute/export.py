@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
-from shoplift.models.person_attribute.backbones import require_paddle
-from shoplift.models.person_attribute.config import load_train_config
-from shoplift.models.person_attribute.model import build_person_attribute_layer
+# Paddle 3.x 默认以 PIR 新格式保存(inference.json + inference.pdiparams),
+# 但后端(Paddle Inference Config,见 paddledet_pphuman_backend.py)需要 legacy 的
+# inference.pdmodel + inference.pdiparams。该 flag 必须在 paddle 首次 import 之前
+# 设置才有效(set_flags 在 paddle 初始化后调用对此版本无效),因此放在模块最顶部,
+# 并把会触发 paddle import 的导入延迟到函数内。
+os.environ.setdefault("FLAGS_enable_pir_api", "0")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,6 +25,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    from shoplift.models.person_attribute.config import load_train_config
+
     config = load_train_config(args.config)
     output_dir = args.output_dir or config.export.output_dir
     output_format = args.format or config.export.output_format
@@ -29,7 +35,15 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def export(config, *, weights: Path, output_dir: Path, output_format: str) -> None:
+    from shoplift.models.person_attribute.backbones import require_paddle
+    from shoplift.models.person_attribute.model import build_person_attribute_layer
+
     paddle = require_paddle()
+    # 命令行环境变量未设时的兜底(某些版本 set_flags 仍会生效)。
+    try:
+        paddle.set_flags({"FLAGS_enable_pir_api": False})
+    except Exception:  # pragma: no cover - 不同版本 flag 行为不同,不阻断导出
+        pass
     output_dir.mkdir(parents=True, exist_ok=True)
     model = build_person_attribute_layer(
         backbone_name=config.backbone.name,
@@ -80,4 +94,3 @@ def _write_infer_cfg(output_dir: Path, config, output_format: str) -> None:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

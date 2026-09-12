@@ -50,7 +50,8 @@ class DETRLoss(nn.Layer):
                  use_vfl=False,
                  vfl_iou_type='bbox',
                  use_uni_match=False,
-                 uni_match_ind=0):
+                 uni_match_ind=0,
+                 class_weights=None):
         r"""
         Args:
             num_classes (int): The number of classes.
@@ -78,6 +79,29 @@ class DETRLoss(nn.Layer):
                                                    loss_coeff['class'])
             self.loss_coeff['class'][-1] = loss_coeff['no_object']
         self.giou_loss = GIoULoss()
+        self.class_weights = None
+        if class_weights is not None:
+            cw = paddle.to_tensor(list(class_weights), dtype='float32')
+            if int(cw.numel()) != self.num_classes:
+                raise ValueError(
+                    'class_weights length {} != num_classes {}'.format(
+                        int(cw.numel()), self.num_classes))
+            self.class_weights = cw
+
+    def _build_class_per_query_weight(self, target_label):
+        """Per-query class weight [b, q, 1] from one-hot labels.
+
+        Foreground queries are scaled by ``class_weights[gt class]``; background
+        queries (all-zero one-hot rows) keep weight 1.0 so the background loss
+        magnitude is unchanged. Returns None when class weighting is disabled.
+        """
+        if self.class_weights is None:
+            return None
+        has_gt = target_label.sum(-1, keepdim=True) > 0
+        cls_idx = target_label.argmax(-1, keepdim=True)  # [b, q, 1]
+        weight = paddle.gather(self.class_weights,
+                               cls_idx.flatten()).reshape(cls_idx.shape)
+        return paddle.where(has_gt, weight, paddle.ones_like(weight))
 
     def _get_loss_class(self,
                         logits,
@@ -103,6 +127,7 @@ class DETRLoss(nn.Layer):
         if self.use_focal_loss:
             target_label = F.one_hot(target_label,
                                      self.num_classes + 1)[..., :-1]
+            pqw = self._build_class_per_query_weight(target_label)
             if iou_score is not None and (self.use_vfl or self.use_mal):
                 if gt_score is not None:
                     target_score = paddle.zeros([bs, num_query_objects])
@@ -118,16 +143,18 @@ class DETRLoss(nn.Layer):
                         [bs, num_query_objects, 1]) * target_label
                     target_score = paddle.multiply(target_score,
                                                    target_score_iou)
-                    if self.use_mal:                    
+                    if self.use_mal:
                         loss_ = self.loss_coeff[
                             'class'] * mal_loss_with_logits(
                                 logits, target_score, target_label,
-                                num_gts / num_query_objects)
+                                num_gts / num_query_objects,
+                                per_query_weight=pqw)
                     else:
                         loss_ = self.loss_coeff[
                             'class'] * varifocal_loss_with_logits(
                                 logits, target_score, target_label,
-                                num_gts / num_query_objects)
+                                num_gts / num_query_objects,
+                                per_query_weight=pqw)
                 else:
                     target_score = paddle.zeros([bs, num_query_objects])
                     if num_gt > 0:
@@ -139,18 +166,27 @@ class DETRLoss(nn.Layer):
                         loss_ = self.loss_coeff[
                             'class'] * mal_loss_with_logits(
                                 logits, target_score, target_label,
-                                num_gts / num_query_objects)
+                                num_gts / num_query_objects,
+                                per_query_weight=pqw)
                     else:
                         loss_ = self.loss_coeff[
                             'class'] * varifocal_loss_with_logits(
                                 logits, target_score, target_label,
-                                num_gts / num_query_objects)
+                                num_gts / num_query_objects,
+                                per_query_weight=pqw)
             else:
                 loss_ = self.loss_coeff['class'] * sigmoid_focal_loss(
-                    logits, target_label, num_gts / num_query_objects)
+                    logits, target_label, num_gts / num_query_objects,
+                    per_query_weight=pqw)
         else:
+            if self.class_weights is not None:
+                class_weight_vec = paddle.concat(
+                    [self.loss_coeff['class'][:-1] * self.class_weights,
+                     self.loss_coeff['class'][-1:]], axis=0)
+            else:
+                class_weight_vec = self.loss_coeff['class']
             loss_ = F.cross_entropy(
-                logits, target_label, weight=self.loss_coeff['class'])
+                logits, target_label, weight=class_weight_vec)
         return {name_class: loss_}
 
     def _get_loss_bbox(self, boxes, gt_bbox, match_indices, num_gts,
@@ -1198,4 +1234,3 @@ class DocLayoutV3Loss(MaskDINOLoss):
                 * self.loss_coeff['order'])
 
         return total_loss
-

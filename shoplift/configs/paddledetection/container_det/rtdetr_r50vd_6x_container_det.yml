@@ -8,6 +8,10 @@ _BASE_: [
 
 # Project-side container detection baseline:
 # COCO-trained RT-DETR-R50 weights -> supermarket container fine-tuning.
+# paddle>=3.0 下 export_model.py 需走 PIR 导出分支(export_with_pir),否则
+# OldIrGuard 的 legacy dy2static 会因 matmul Variable/Value 不兼容而失败。
+# 仅影响导出,不影响训练。
+export_with_pir: True
 pretrain_weights: https://bj.bcebos.com/v1/paddledet/models/rtdetr_r50vd_6x_coco.pdparams
 weights: ../../outputs/wqh/container_det/rtdetr_r50vd_6x_container_det/model_final
 save_dir: ../../outputs/wqh/container_det/rtdetr_r50vd_6x_container_det

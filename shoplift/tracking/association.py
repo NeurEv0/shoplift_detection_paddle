@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from math import sqrt
 from typing import Iterable, Sequence
 
@@ -36,6 +36,9 @@ class AssociationConfig:
     max_missing_frames: int = 5
     max_frame_gap: int = 1
     min_entry_overlap_ratio: float = 0.25
+    # 几何 v1(包口投放):私有容器(包类)参与 entry 判定前,把容器框顶向上扩张该像素,
+    # 使悬在包口上方的手/商品(不进入包框)也能命中"包口投放"。默认 0.0 = 关闭(保持 v1 严格进框)。
+    private_container_mouth_margin_px: float = 0.0
     low_confidence_score: float = 0.35
     normal_container_categories: tuple[str, ...] = ("basket", "cart", "checkout_bag")
 
@@ -245,8 +248,9 @@ def _relation_key(evidence: RelationEvidence) -> tuple[str | None, str | None]:
 class ItemTrackStitcher:
     """Assign short-term item ids when the detector does not provide them."""
 
-    def __init__(self, config: AssociationConfig | None = None) -> None:
+    def __init__(self, config: AssociationConfig | None = None, *, prefix: str = "item") -> None:
         self.config = config or AssociationConfig()
+        self.prefix = prefix
         self._states: dict[str, _ItemTrackState] = {}
         self._next_id = 1
 
@@ -261,7 +265,7 @@ class ItemTrackStitcher:
             else:
                 track_id = self._match_existing_track(item, frame_id, used_track_ids)
                 if track_id is None:
-                    track_id = f"item-{self._next_id}"
+                    track_id = f"{self.prefix}-{self._next_id}"
                     self._next_id += 1
 
             used_track_ids.add(track_id)
@@ -648,72 +652,116 @@ class ContainerEntryDetector:
         for tracked_item in items:
             item = tracked_item.detection
             item_track_id = tracked_item.track_id
+            matched: list[tuple[DetectionBox, str, str, dict[str, object]]] = []
             for container in containers:
                 container_track_id = detection_track_id(container, "container")
                 key = (item_track_id, container_track_id)
-                metrics = self._entry_metrics(item, container)
+                kind = container_kind(container, self.config)
+                # 几何 v1:私有容器(包口)把框顶向上扩张后再判 entry
+                effective = self._entry_container_box(container, kind)
+                metrics = self._entry_metrics(
+                    item,
+                    effective,
+                    mouth_expanded=effective is not container,
+                )
                 if not metrics["is_entry"]:
                     if key in self._states:
                         self._states[key].consecutive_frames = 0
                     continue
+                matched.append((container, container_track_id, kind, metrics))
 
-                active_keys.add(key)
-                state = self._states.setdefault(key, _EntryState())
-                if state.last_frame_id is not None and frame_id - state.last_frame_id <= self.config.max_frame_gap:
-                    state.consecutive_frames += 1
-                else:
-                    state.consecutive_frames = 1
-                state.last_frame_id = frame_id
-                if state.consecutive_frames < self.config.min_entry_frames:
-                    continue
+            if not matched:
+                continue
+            # 几何 v1:同帧同 item 命中多个容器时私有优先(防外层购物车/篮子截胡)。
+            private_matches = [entry for entry in matched if entry[2] == "private"]
+            pool = private_matches if private_matches else matched
+            container, container_track_id, kind, metrics = max(
+                pool, key=lambda entry: (float(entry[3]["base_score"]), entry[1])
+            )
+            key = (item_track_id, container_track_id)
+            # 未入选的命中容器断开连续计数,避免同 item 在多个容器状态里"双计数"
+            for other_container, other_track_id, other_kind, other_metrics in matched:
+                other_key = (item_track_id, other_track_id)
+                if other_key != key and other_key in self._states:
+                    self._states[other_key].consecutive_frames = 0
 
-                kind = container_kind(container, self.config)
-                tags = self._entry_tags(kind)
-                if state.consecutive_frames >= self.config.min_entry_frames:
-                    tags.append("entry_temporal_consistent")
-                if item.score < self.config.low_confidence_score or container.score < self.config.low_confidence_score:
-                    tags.append("low_confidence")
+            active_keys.add(key)
+            state = self._states.setdefault(key, _EntryState())
+            if state.last_frame_id is not None and frame_id - state.last_frame_id <= self.config.max_frame_gap:
+                state.consecutive_frames += 1
+            else:
+                state.consecutive_frames = 1
+            state.last_frame_id = frame_id
+            if state.consecutive_frames < self.config.min_entry_frames:
+                continue
 
-                score = min(
-                    1.0,
-                    float(metrics["base_score"])
-                    + 0.2 * min(1.0, state.consecutive_frames / max(1, self.config.min_entry_frames)),
+            tags = self._entry_tags(kind)
+            if state.consecutive_frames >= self.config.min_entry_frames:
+                tags.append("entry_temporal_consistent")
+            if item.score < self.config.low_confidence_score or container.score < self.config.low_confidence_score:
+                tags.append("low_confidence")
+
+            score = min(
+                1.0,
+                float(metrics["base_score"])
+                + 0.2 * min(1.0, state.consecutive_frames / max(1, self.config.min_entry_frames)),
+            )
+            if kind == "normal":
+                score = min(score, 0.45)
+            if "low_confidence" in tags:
+                score = min(score, 0.55)
+
+            evidences.append(
+                RelationEvidence(
+                    relation_type="item_enter_container",
+                    frame_id=frame_id,
+                    timestamp_ms=timestamp_ms,
+                    score=score,
+                    reason_tags=tuple(dict.fromkeys(tags)),
+                    person_track_id=person_by_item.get(item_track_id),
+                    item_track_id=item_track_id,
+                    container_track_id=container_track_id,
+                    evidence_boxes={"item": item.bbox, "container": container.bbox},
+                    metadata={
+                        "entry_frames": state.consecutive_frames,
+                        "container_category": container.category,
+                        "container_kind": kind,
+                        "is_normal_container": kind == "normal",
+                        "item_box_id": item.box_id,
+                        "container_box_id": container.box_id,
+                        "item_center_inside_container": metrics["center_inside"],
+                        "item_overlap_ratio": metrics["overlap_ratio"],
+                        "mouth_expanded": bool(metrics["mouth_expanded"]),
+                        "mouth_margin_px": self._mouth_margin_px(kind),
+                    },
                 )
-                if kind == "normal":
-                    score = min(score, 0.45)
-                if "low_confidence" in tags:
-                    score = min(score, 0.55)
-
-                evidences.append(
-                    RelationEvidence(
-                        relation_type="item_enter_container",
-                        frame_id=frame_id,
-                        timestamp_ms=timestamp_ms,
-                        score=score,
-                        reason_tags=tuple(dict.fromkeys(tags)),
-                        person_track_id=person_by_item.get(item_track_id),
-                        item_track_id=item_track_id,
-                        container_track_id=container_track_id,
-                        evidence_boxes={"item": item.bbox, "container": container.bbox},
-                        metadata={
-                            "entry_frames": state.consecutive_frames,
-                            "container_category": container.category,
-                            "container_kind": kind,
-                            "is_normal_container": kind == "normal",
-                            "item_box_id": item.box_id,
-                            "container_box_id": container.box_id,
-                            "item_center_inside_container": metrics["center_inside"],
-                            "item_overlap_ratio": metrics["overlap_ratio"],
-                        },
-                    )
-                )
+            )
 
         for key in list(self._states):
             if key not in active_keys and self._states[key].consecutive_frames == 0:
                 del self._states[key]
         return tuple(evidences)
 
-    def _entry_metrics(self, item: DetectionBox, container: DetectionBox) -> dict[str, object]:
+    def _mouth_margin_px(self, kind: str) -> float:
+        if kind != "private":
+            return 0.0
+        return float(self.config.private_container_mouth_margin_px)
+
+    def _entry_container_box(self, container: DetectionBox, kind: str) -> DetectionBox:
+        """私有容器入口框:包口朝上,几何 v1 把框顶向上扩张 margin px 再参与 entry 判定。"""
+        margin = self._mouth_margin_px(kind)
+        if margin <= 0.0:
+            return container
+        x1, y1, x2, y2 = container.bbox
+        return replace(container, bbox=(x1, max(0.0, y1 - margin), x2, y2))
+
+    def _entry_metrics(
+        self,
+        item: DetectionBox,
+        container: DetectionBox,
+        *,
+        mouth_expanded: bool = False,
+    ) -> dict[str, object]:
         intersection = bbox_intersection_area(item.bbox, container.bbox)
         item_area = max(1.0, bbox_area(item.bbox))
         overlap_ratio = intersection / item_area
@@ -725,6 +773,7 @@ class ContainerEntryDetector:
             "center_inside": center_inside,
             "overlap_ratio": overlap_ratio,
             "base_score": base_score,
+            "mouth_expanded": mouth_expanded,
         }
 
     @staticmethod
@@ -843,6 +892,7 @@ class ShopliftingRelationAssociator:
     def __init__(self, config: AssociationConfig | None = None) -> None:
         self.config = config or AssociationConfig()
         self.item_stitcher = ItemTrackStitcher(self.config)
+        self.container_stitcher = ItemTrackStitcher(self.config, prefix="container")
         self.hand_item_contact = HandItemContactAssociator(self.config)
         self.item_follow_person = ItemFollowPersonAssociator(self.config)
         self.container_entry = ContainerEntryDetector(self.config)
@@ -872,11 +922,18 @@ class ShopliftingRelationAssociator:
 
         person_by_item = self.item_follow_person.person_for_items()
         all_containers = tuple(frame.containers) + tuple(frame.extension_regions)
+        # RT-DETR / 其他纯检测器不给容器输出 track_id,box_id 每帧变化;
+        # 先按中心距离 + IoU 拼接出稳定的 container track_id,entry 状态才能跨帧累积。
+        tracked_containers = self.container_stitcher.update(all_containers, frame.frame_id)
+        container_boxes = tuple(
+            replace(tracked.detection, track_id=tracked.track_id)
+            for tracked in tracked_containers
+        )
         entry = self.container_entry.update(
             frame_id=frame.frame_id,
             timestamp_ms=frame.timestamp_ms,
             items=tracked_items,
-            containers=all_containers,
+            containers=container_boxes,
             person_by_item=person_by_item,
         )
         relation_groups.append(entry)

@@ -1,0 +1,141 @@
+# PP-TSM OPEN-BINARY v2 config (M2.5C, NEW) - FP-suppression retrain:
+#   1 = open(拆包装)   0 = not-open
+# v2 differences vs v1 (pptsm_open_fight16.yaml):
+#   - train -> steps/open_data_v2/train.list (145 dirs: pos=steal_2_s2 open 44(x2 rows),
+#     neg=101 incl NEW hard negatives: normal_test1 eating, normal_train2,
+#     normal_train1_s1, steal_1 all segs; normal_test2 kept OUT of train as probe)
+#   - valid/test file -> open_data_v2/open_eval.list (same content as v1)
+#   - output_dir -> outputs/wqh/paddlevideo/pptsm_open_v2_fight16 (nothing overwritten)
+#   - epochs / lr.max_epoch = 120 (same schedule family)
+MODEL:
+    framework: "Recognizer2D"
+    backbone:
+        name: "ResNetTweaksTSM"
+        pretrained: "/home/e-ai2/ZHITAI_2tb/shoplift_detection_paddle/third_party/PaddleVideo/ppTSM_fight.pdparams"
+        depth: 50
+        num_seg: 16
+    head:
+        name: "ppTSMHead"
+        num_classes: 2
+        in_channels: 2048
+        drop_ratio: 0.5
+        std: 0.01
+        ls_eps: 0.1
+
+DATASET:
+    batch_size: 1
+    num_workers: 4
+    test_batch_size: 1
+    train:
+        format: "FrameDataset"
+        data_prefix: "/home/e-ai2/ZHITAI_2tb/shoplift_detection_paddle/outputs/wqh/paddlevideo/steps/open_data_v2"
+        file_path: "/home/e-ai2/ZHITAI_2tb/shoplift_detection_paddle/outputs/wqh/paddlevideo/steps/open_data_v2/train.list"
+        suffix: 'img_{:05}.jpg'
+    valid:
+        format: "FrameDataset"
+        data_prefix: "/home/e-ai2/ZHITAI_2tb/shoplift_detection_paddle/outputs/wqh/paddlevideo/steps/data"
+        file_path: "/home/e-ai2/ZHITAI_2tb/shoplift_detection_paddle/outputs/wqh/paddlevideo/steps/open_data_v2/open_eval.list"
+        suffix: 'img_{:05}.jpg'
+    test:
+        format: "FrameDataset"
+        data_prefix: "/home/e-ai2/ZHITAI_2tb/shoplift_detection_paddle/outputs/wqh/paddlevideo/steps/data"
+        file_path: "/home/e-ai2/ZHITAI_2tb/shoplift_detection_paddle/outputs/wqh/paddlevideo/steps/open_data_v2/open_eval.list"
+        suffix: 'img_{:05}.jpg'
+
+PIPELINE:
+    train:
+        decode:
+            name: "FrameDecoder"
+        sample:
+            name: "Sampler"
+            num_seg: 16
+            seg_len: 1
+            valid_mode: False
+            dense_sample: True
+        transform:
+            - Scale:
+                short_size: 340
+            - MultiScaleCrop:
+                target_size: 340
+            - RandomCrop:
+                target_size: 320
+            - RandomFlip:
+            - Image2Array:
+            - Normalization:
+                mean: [0.485, 0.456, 0.406]
+                std: [0.229, 0.224, 0.225]
+    valid:
+        decode:
+            name: "FrameDecoder"
+        sample:
+            name: "Sampler"
+            num_seg: 16
+            seg_len: 1
+            valid_mode: True
+        transform:
+            - Scale:
+                short_size: 340
+            - CenterCrop:
+                target_size: 320
+            - Image2Array:
+            - Normalization:
+                mean: [0.485, 0.456, 0.406]
+                std: [0.229, 0.224, 0.225]
+    test:
+        decode:
+            name: "FrameDecoder"
+        sample:
+            name: "Sampler"
+            num_seg: 16
+            seg_len: 1
+            valid_mode: True
+            dense_sample: True
+        transform:
+            - Scale:
+                short_size: 340
+            - CenterCrop:
+                target_size: 320
+            - Image2Array:
+            - Normalization:
+                mean: [0.485, 0.456, 0.406]
+                std: [0.229, 0.224, 0.225]
+
+OPTIMIZER:
+  name: 'Momentum'
+  momentum: 0.9
+  learning_rate:
+    iter_step: True
+    name: 'CustomWarmupCosineDecay'
+    max_epoch: 120
+    warmup_epochs: 10
+    warmup_start_lr: 0.002
+    cosine_base_lr: 0.001
+  weight_decay:
+    name: 'L2'
+    value: 1e-4
+  use_nesterov: True
+
+MIX:
+    name: "VideoMix"
+    cutmix_prob: 0.5
+    mixup_alpha: 0.2
+    cutmix_alpha: 1.0
+
+PRECISEBN:
+  preciseBN_interval: 5
+  num_iters_preciseBN: 200
+
+METRIC:
+    name: 'CenterCropMetric'
+
+INFERENCE:
+    name: 'ppTSM_Inference_helper'
+    num_seg: 16
+    short_size: 340
+    target_size: 320
+
+model_name: "ppTSM"
+log_interval: 10
+epochs: 120
+log_level: "INFO"
+output_dir: "/home/e-ai2/ZHITAI_2tb/shoplift_detection_paddle/outputs/wqh/paddlevideo/pptsm_open_v2_fight16"

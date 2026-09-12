@@ -1,0 +1,87 @@
+_BASE_: [
+  'container_det_detection.yml',
+  '../../../../src/PaddleDetection-release-2.9/configs/runtime.yml',
+  '../../../../src/PaddleDetection-release-2.9/configs/rtdetr/_base_/optimizer_6x.yml',
+  '../../../../src/PaddleDetection-release-2.9/configs/rtdetr/_base_/rtdetr_r50vd.yml',
+  '../../../../src/PaddleDetection-release-2.9/configs/rtdetr/_base_/rtdetr_reader.yml',
+]
+
+# 容器检测 classw102 版 (2026-09-09, 治"贴篮背包幻影"误检回合):
+# classw101(backpack 权重 3.0) 在 cc015 37-50s 段持续于篮筐上方误报 backpack
+# (贴篮幻影, 人走了仍在报)。根因: 训练集 backpack 仅 13 正例 + 0 负例 +
+# allow_empty:false, 权重硬顶导致对"篮子上方类背包纹理"过拟合。
+# 本版 = 数据增强 + 权重回调:
+#   1) 数据集换 datasets/container_det_v2exp = 原 container_det(223图) + 新增 60 帧
+#      (cc015 15-58s stride15 人工标注): backpack 正例 13->35(含远离篮区真例),
+#      并含大量"篮子/车可见但无背包"难负例(专压贴篮幻影);
+#   2) class_weights: backpack 3.0->2.0(数据补足后退让, 让数据说话);
+#      handbag 1.0->1.2(护 D03 handbag: 新增帧无 handbag, 占比 26%->21.4%);
+#   3) TrainDataset allow_empty: false(同 classw101: 旧 json 含 19 张 D03 零标注图,
+#       allow_empty:true 会把它们放进训练导致空 gt collate 崩溃; 新增 60 帧均非空不受影响)。
+# 其余与 classw101 完全一致(100 epoch, milestones [66,88], lr 5e-5, PIR 导出)。
+# 输出独立目录 *classw102, 不覆盖 classw101/其他版本。
+export_with_pir: True
+pretrain_weights: https://bj.bcebos.com/v1/paddledet/models/rtdetr_r50vd_6x_coco.pdparams
+weights: ../../outputs/wqh/container_det/rtdetr_r50vd_6x_container_det_classw102/model_final
+save_dir: ../../outputs/wqh/container_det/rtdetr_r50vd_6x_container_det_classw102
+find_unused_parameters: True
+log_iter: 50
+snapshot_epoch: 1
+
+epoch: 100
+eval_with_loss: True
+use_tensorboard: True
+tensorboard_log_dir: ../../outputs/wqh/container_det/rtdetr_r50vd_6x_container_det_classw102/tb
+
+LearningRate:
+  base_lr: 0.00005
+  schedulers:
+  - !PiecewiseDecay
+    gamma: 0.1
+    milestones: [66, 88]
+    use_warmup: true
+  - !LinearWarmup
+    start_factor: 0.001
+    steps: 100
+
+TrainReader:
+  batch_size: 4
+  batch_transforms:
+    - BatchRandomResize: {target_size: [480, 512, 544, 576, 608, 640, 640, 640, 672, 704], random_size: True, random_interp: True, keep_ratio: False}
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
+    - NormalizeBox: {}
+    - BboxXYXY2XYWH: {}
+    - Permute: {}
+
+EvalReader:
+  batch_size: 4
+  collate_batch: false
+  sample_transforms:
+    - Decode: {}
+    - Resize: {target_size: [640, 640], keep_ratio: False, interp: 2}
+    - NormalizeImage: {mean: [0., 0., 0.], std: [1., 1., 1.], norm_type: none}
+  batch_transforms:
+    - NormalizeBox: {}
+    - BboxXYXY2XYWH: {}
+    - Permute: {}
+
+TestReader:
+  batch_size: 1
+
+# 数据集覆盖: 指向 v2exp; allow_empty false 同 classw101(跳零标注图)
+TrainDataset:
+  dataset_dir: ../../datasets/container_det_v2exp
+  allow_empty: false
+
+EvalDataset:
+  dataset_dir: ../../datasets/container_det_v2exp
+
+TestDataset:
+  dataset_dir: ../../datasets/container_det_v2exp
+
+# 分类损失按类别加权(顺序同 label_list.txt):
+# bag=1.0, backpack=2.0(自 3.0 降 33%), handbag=1.2(自 1.0 升,护 D03),
+# suitcase/basket/cart/plastic_bag/stroller/helmet=1.0
+DINOHead:
+  loss:
+    class_weights: [1.0, 2.0, 1.2, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]

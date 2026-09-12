@@ -1,20 +1,45 @@
-risk_levels:
-  low:
-    min_score: 0.0
-  medium:
-    min_score: 0.45
-  high:
-    min_score: 0.75
+# P1 规则/参数唯一配置文件(shoplift.configs.rules_loader 读取,改这里即可,无需改代码)
+# 节名与 dataclass 字段一一对应:
+#   association  -> shoplift.tracking.association.AssociationConfig
+#   risk_scoring -> shoplift.rules.risk_score.RiskScoringConfig
+#   rules        -> shoplift.rules.validators.RiskRuleConfig
+# 未知键会抛 ValueError(避免拼写错误被静默忽略导致调参失效)。
+# 单位:association 下的帧数参数按"处理帧"计,闭环测试请用 frame_stride: 1。
 
-event_types:
-  supported:
-    - clothing_concealment
-    - bag_concealment
-    - special_container_concealment
-    - bulk_pickup_to_bag
-    - near_body_suspicious
+association:
+  # 手-商品接触需要连续帧数(处理帧)
+  min_contact_frames: 3
+  # 商品进入容器需要连续帧数(处理帧)
+  min_entry_frames: 3
+  # 进入容器后商品消失多少帧(处理帧)判定"消失"
+  disappeared_after_entry_frames: 10
+  # 接触距离硬阈值(px);与接触尺寸比阈值取较大者
+  max_contact_distance_px: 32.0
+  # 接触尺寸比阈值:max(手/商品尺寸) * ratio
+  contact_distance_ratio: 0.75
+  # 接触 IoU 下限(与距离条件 OR)
+  min_contact_iou: 0.01
+  # 手/商品运动方向余弦相似度下限(接触加分项)
+  min_motion_cosine: 0.35
+  # 商品中心到人中心的最大跟随距离(px)
+  max_follow_distance_px: 160.0
+  # 商品归属人(ownership)的得分下限
+  follow_score_threshold: 0.45
+  # 两个候选人的归属得分差小于该值视为歧义,不关联
+  ownership_conflict_margin: 0.12
+  # 商品/容器短时跟踪缺失帧数上限(处理帧)
+  max_missing_frames: 5
+  # 连续计数允许的最大帧间隔(处理帧)
+  max_frame_gap: 1
+  # 商品中心在容器内或重叠比例达到该值即视为"进入"
+  min_entry_overlap_ratio: 0.25
+  # 手/商品检测置信度低于该值打 low_confidence 标签
+  low_confidence_score: 0.35
+  # 正常容器类别白名单(放入即豁免)
+  normal_container_categories: [basket, cart, checkout_bag]
 
 risk_scoring:
+  # 事件类型基础权重
   action_type_weights:
     clothing_concealment: 0.34
     bag_concealment: 0.32
@@ -22,37 +47,63 @@ risk_scoring:
     bulk_pickup_to_bag: 0.38
     near_body_suspicious: 0.18
     normal_container_placement: 0.05
+    package_opening: 0.34
+  # 容器类别权重(与 action 权重相加)
   container_type_weights:
     private: 0.16
     clothing: 0.18
     special: 0.18
     normal: -0.20
     unknown: 0.04
+  # 证据时间跨度分量权重
   continuous_evidence_weight: 0.16
+  # 证据关系类型多样性分量权重
   relation_diversity_weight: 0.08
+  # 证据平均得分分量权重(代理"模型置信度")
   model_confidence_weight: 0.20
+  # 区域风险分量权重(metadata.area_risk_weight 等)
   area_risk_weight: 0.12
+  # 正常购物降级扣分(容器为 normal 时)
   normal_shopping_downgrade: 0.35
-
-temporal:
-  min_contact_frames: 3
-  min_entry_frames: 3
+  # 低可见度/低置信度得分上限
+  low_visibility_score_cap: 0.55
+  low_confidence_score_cap: 0.55
+  # 证据平均分低于该值视为低置信度
+  low_confidence_threshold: 0.35
+  # 单帧接触事件的得分上限
+  single_frame_contact_score_cap: 0.44
+  # 批量拿取判定:同一容器在窗口内累计的商品数
+  bulk_item_count_threshold: 3
+  # 证据时间跨度达到该帧数视为"充分"(连续分量饱和)
   high_risk_min_evidence_frames: 8
-  disappeared_after_entry_frames: 10
+  # 风险档位阈值
+  medium_threshold: 0.45
+  high_threshold: 0.75
 
-normal_containers:
-  whitelist:
-    - basket
-    - cart
-    - checkout_bag
-  high_risk_downgrade: true
-
-visibility:
-  low_confidence_score: 0.35
-  low_visibility_risk_cap: medium
-
-event_constraints:
+rules:
+  # 风险档位阈值(规则校验/归一化用,与 risk_scoring 保持一致)
+  medium_threshold: 0.45
+  high_threshold: 0.75
+  # high 至少需要多少个 reason tag
   high_risk_min_reason_tags: 2
-  single_frame_contact_risk_cap: low
-  normal_container_risk_cap: medium
+  # 低可见度事件的风险档上限(low/medium/high)
   low_visibility_risk_cap: medium
+  # 正常容器事件的风险档上限
+  normal_container_risk_cap: medium
+  # 单帧接触事件的风险档上限
+  single_frame_contact_risk_cap: low
+  # 各类归一化的得分上限
+  low_visibility_score_cap: 0.55
+  low_confidence_score_cap: 0.55
+  single_frame_contact_score_cap: 0.44
+  normal_container_score_cap: 0.44
+
+event_types:
+  # 事件类型清单(文档用途;引擎逻辑见 shoplift/events)
+  supported:
+    - clothing_concealment
+    - bag_concealment
+    - special_container_concealment
+    - bulk_pickup_to_bag
+    - near_body_suspicious
+    - package_opening

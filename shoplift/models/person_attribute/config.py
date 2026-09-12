@@ -20,6 +20,7 @@ class BackboneConfig:
 class DataConfig:
     train_annotation: Path
     val_annotation: Path | None = None
+    test_annotation: Path | None = None
     image_root: Path = Path(".")
     image_width: int = 192
     image_height: int = 256
@@ -86,6 +87,7 @@ def _load_data(data: Any) -> DataConfig:
     return DataConfig(
         train_annotation=Path(mapping.get("train_annotation", "datasets/person_attribute/train.csv")),
         val_annotation=Path(mapping["val_annotation"]) if mapping.get("val_annotation") else None,
+        test_annotation=Path(mapping["test_annotation"]) if mapping.get("test_annotation") else None,
         image_root=Path(mapping.get("image_root", ".")),
         image_width=int(mapping.get("image_width", 192)),
         image_height=int(mapping.get("image_height", 256)),

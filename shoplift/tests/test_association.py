@@ -129,6 +129,34 @@ class AssociationTest(unittest.TestCase):
         contact = [relation for relation in result.relations if relation.relation_type == "hand_item_contact"]
         self.assertEqual(contact, [])
 
+    def test_relation_associator_stitches_untracked_containers(self) -> None:
+        """RT-DETR 容器无 track_id(box_id 每帧变化)时,entry 证据仍能跨帧累积。"""
+        associator = ShopliftingRelationAssociator(
+            AssociationConfig(min_contact_frames=1, min_entry_frames=2)
+        )
+        entries: list[RelationEvidence] = []
+        for frame_id in (1, 2, 3):
+            item = _box(f"item-box-{frame_id}", frame_id, "item", (120, 120, 145, 145), track_id="item-1")
+            bag = _box(f"bag-{frame_id}", frame_id, "bag", (100, 100, 180, 190))
+            result = associator.update(
+                AssociationFrame(
+                    frame_id=frame_id,
+                    timestamp_ms=frame_id * 33,
+                    camera_id="camera-1",
+                    person_tracks=(_person(frame_id, "person-1", (50, 50, 180, 220)),),
+                    hand_regions=(_hand(frame_id, (118, 118, 148, 148)),),
+                    items=(item,),
+                    containers=(bag,),
+                )
+            )
+            entries.extend(result.by_type("item_enter_container"))
+
+        # frame 2、3 各应产出一条 private 容器 entry(frame 1 只有 1 帧,未达阈值)
+        self.assertEqual(len(entries), 2)
+        for entry in entries:
+            self.assertIn("entered_private_container", entry.reason_tags)
+            self.assertIsNotNone(entry.person_track_id)
+
     def test_item_follow_person_handles_short_missing_gap(self) -> None:
         associator = ItemFollowPersonAssociator(AssociationConfig(max_missing_frames=2))
         person = _person(1, "person-1", (50, 50, 180, 220))
@@ -291,6 +319,66 @@ class AssociationTest(unittest.TestCase):
         self.assertEqual(len(normal_disappeared), 1)
         self.assertIn("normal_container_exempted", normal_disappeared[0].reason_tags)
         self.assertLessEqual(normal_disappeared[0].score, 0.25)
+
+    def test_private_mouth_margin_fires_entry_above_bag_top(self) -> None:
+        """几何 v1:私有容器框顶向上扩张后,悬在包口上方(不进包框)的手/商品也算进入。"""
+        detector = ContainerEntryDetector(
+            AssociationConfig(min_entry_frames=2, private_container_mouth_margin_px=40)
+        )
+        bag = _box("bag-1", 1, "bag", (100, 200, 180, 300), track_id="bag-1")
+        # item 在包框正上方 30px(不进原框),margin 40px 后落入扩张区
+        item = _tracked_item(1, (120, 160, 150, 195))
+
+        first = detector.update(frame_id=1, timestamp_ms=33, items=(item,), containers=(bag,))
+        self.assertEqual(first, ())
+        second = detector.update(
+            frame_id=2,
+            timestamp_ms=66,
+            items=(_tracked_item(2, (120, 160, 150, 195)),),
+            containers=(bag,),
+        )
+        self.assertEqual(len(second), 1)
+        self.assertIn("entered_private_container", second[0].reason_tags)
+        self.assertTrue(second[0].metadata["mouth_expanded"])
+        self.assertEqual(second[0].metadata["mouth_margin_px"], 40.0)
+
+    def test_mouth_margin_zero_keeps_strict_entry(self) -> None:
+        """margin=0(默认)时,框顶外的手/商品不触发 entry(保持 v1 严格进框)。"""
+        detector = ContainerEntryDetector(AssociationConfig(min_entry_frames=1))
+        bag = _box("bag-1", 1, "bag", (100, 200, 180, 300), track_id="bag-1")
+        item = _tracked_item(1, (120, 160, 150, 195))  # 在包框上方,不进框
+        result = detector.update(frame_id=1, timestamp_ms=33, items=(item,), containers=(bag,))
+        self.assertEqual(result, ())
+
+    def test_private_container_priority_when_same_item_hits_multiple(self) -> None:
+        """几何 v1:同帧同 item 命中私有+normal 容器时只产生私有 entry(防购物车截胡)。"""
+        detector = ContainerEntryDetector(AssociationConfig(min_entry_frames=1))
+        # 包(私有)在购物篮(normal)内部,item 同时落在两者框内
+        bag = _box("bag-1", 1, "bag", (200, 200, 280, 300), track_id="bag-1")
+        basket = _box(
+            "basket-1",
+            1,
+            "basket",
+            (150, 150, 350, 400),
+            track_id="basket-1",
+            attributes={"is_normal_container": True},
+        )
+        item = _tracked_item(1, (220, 210, 260, 250))
+        result = detector.update(
+            frame_id=1, timestamp_ms=33, items=(item,), containers=(basket, bag)
+        )
+        self.assertEqual(len(result), 1)
+        self.assertIn("entered_private_container", result[0].reason_tags)
+        self.assertEqual(result[0].container_track_id, "bag-1")
+        # 连续两帧同场景,normal 侧状态不累积(不会出现第二条 normal entry)
+        result2 = detector.update(
+            frame_id=2,
+            timestamp_ms=66,
+            items=(_tracked_item(2, (220, 210, 260, 250)),),
+            containers=(basket, bag),
+        )
+        self.assertEqual(len(result2), 1)
+        self.assertIn("entered_private_container", result2[0].reason_tags)
 
 
 if __name__ == "__main__":

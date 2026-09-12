@@ -17,7 +17,6 @@ import yaml
 import glob
 import json
 from pathlib import Path
-from functools import reduce
 
 import cv2
 import numpy as np
@@ -33,8 +32,7 @@ sys.path.insert(0, parent_path)
 
 from benchmark_utils import PaddleInferBenchmark
 from picodet_postprocess import PicoDetPostProcess
-from preprocess import preprocess, Resize, NormalizeImage, Permute, PadStride, LetterBoxResize, WarpAffine, Pad, decode_image, CULaneResize
-from keypoint_preprocess import EvalAffine, TopDownEvalAffine, expand_crop
+from preprocess import preprocess
 from clrnet_postprocess import CLRNetPostProcess
 from visualize import visualize_box_mask, imshow_lanes
 from utils import argsparser, Timer, get_current_memory_mb, multiclass_nms, coco_clsid2catid
@@ -256,7 +254,6 @@ class Detector(object):
         results = []
         try:
             import sahi
-            from sahi.slicing import slice_image
         except Exception as e:
             print(
                 'sahi not found, plaese install sahi. '
@@ -356,7 +353,8 @@ class Detector(object):
                     threshold=self.threshold)
 
             results.append(merged_results)
-            print('Test iter {}'.format(i))
+            if visual:
+                print('Test iter {}'.format(i))
 
         results = self.merge_batch_result(results)
         if save_results:
@@ -429,7 +427,8 @@ class Detector(object):
                         output_dir=self.output_dir,
                         threshold=self.threshold)
             results.append(result)
-            print('Test iter {}'.format(i))
+            if visual:
+                print('Test iter {}'.format(i))
         results = self.merge_batch_result(results)
         if save_results:
             Path(self.output_dir).mkdir(exist_ok=True)
@@ -1000,14 +999,23 @@ def load_predictor(model_dir,
         infer_param = os.path.join(model_dir, 'model.pdiparams')
         if not os.path.exists(infer_param):
             model_prefix = 'inference'
-            if paddle.framework.use_pir_api():
-                infer_model = os.path.join(model_dir, 'inference.pdmodel')
-            else:
-                infer_model = os.path.join(model_dir, 'inference.json')
-            if not os.path.exists(infer_model):
-                raise ValueError(
-                    "Cannot find any inference model in dir: {}.".format(model_dir))
-        config = Config(model_path, model_prefix)
+            infer_param = os.path.join(model_dir, 'inference.pdiparams')
+        if not os.path.exists(infer_param):
+            raise ValueError(
+                "Cannot find any inference params in dir: {}.".format(model_dir))
+        # Paddle 3 的 Config(model_dir, prefix) 在 PIR 默认开启时只认 {prefix}.json;
+        # 对 legacy {prefix}.pdmodel 模型(PaddleDetection 2.x 导出 / 官方 PP-Human)
+        # 需要显式传 program/params 文件。按实际存在文件选择,兼容 PIR json 与 legacy pdmodel 混用。
+        program_json = os.path.join(model_dir, model_prefix + '.json')
+        program_pdmodel = os.path.join(model_dir, model_prefix + '.pdmodel')
+        if os.path.exists(program_json):
+            config = Config(model_dir, model_prefix)
+        elif os.path.exists(program_pdmodel):
+            config = Config(program_pdmodel, infer_param)
+        else:
+            raise ValueError(
+                "Cannot find any inference model ({}.json or {}.pdmodel) in dir: {}.".format(
+                    model_prefix, model_prefix, model_dir))
 
     else:
         infer_model = os.path.join(model_dir, 'model.pdmodel')
@@ -1055,7 +1063,7 @@ def load_predictor(model_dir,
                 config.enable_mkldnn()
                 if enable_mkldnn_bfloat16:
                     config.enable_mkldnn_bfloat16()
-            except Exception as e:
+            except Exception:
                 print(
                     "The current environment does not support `mkldnn`, so disable mkldnn."
                 )

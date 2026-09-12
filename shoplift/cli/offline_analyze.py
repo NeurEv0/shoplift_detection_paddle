@@ -19,8 +19,11 @@ from shoplift.core.types import (
     ProxyItemRegion,
     Tracklet,
 )
+from shoplift.configs.rules_loader import load_rules_config
 from shoplift.events.event_engine import ShopliftingEventEngine
 from shoplift.events.event_schema import risk_event_to_payload
+from shoplift.rules.risk_score import RiskScorer
+from shoplift.rules.validators import RiskRuleValidator
 from shoplift.tracking.association import AssociationFrame
 from shoplift.vision import (
     ItemContainerDetectionAdapter,
@@ -93,6 +96,7 @@ class OfflineConfig:
     modules: ModuleOptions
     backend: BackendOptions
     outputs: OutputPaths
+    rules_config: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -278,6 +282,7 @@ def load_offline_config(args: argparse.Namespace) -> OfflineConfig:
         modules=modules,
         backend=backend,
         outputs=outputs,
+        rules_config=_path_or_none(config_data.get("rules_config")),
     )
 
 
@@ -297,7 +302,13 @@ def run_offline_analysis(
         min_score=config.modules.person_gate_min_score,
         skip_when_empty=config.modules.person_gate_skip_when_empty,
     )
-    event_engine = ShopliftingEventEngine()
+    rules = load_rules_config(config.rules_config)
+    event_engine = ShopliftingEventEngine(
+        association_config=rules.association,
+        risk_scorer=RiskScorer(rules.risk_scoring),
+        rule_validator=RiskRuleValidator(rules.rules),
+        nested_concealment_config=rules.nested_concealment,
+    )
     emitted_events = []
     item_container_adapter = ItemContainerDetectionAdapter(
         min_score=config.modules.item_container_min_score,
@@ -815,6 +826,7 @@ def dry_run_payload(config: OfflineConfig) -> dict[str, Any]:
             "debug_dir": str(config.outputs.debug_dir),
             "debug_video": str(config.outputs.debug_video),
         },
+        "rules_config": str(config.rules_config) if config.rules_config is not None else None,
         "status": "dry_run_ok",
     }
 

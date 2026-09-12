@@ -106,7 +106,7 @@ class LogPrinter(Callback):
         super(LogPrinter, self).__init__(model)
 
     def on_step_end(self, status):
-        
+
         if dist.get_world_size() < 2 or dist.get_rank() in self.log_ranks:
             mode = status['mode']
             if mode == 'train':
@@ -184,7 +184,7 @@ class Checkpointer(Callback):
             self.weight = self.model.model.student_model
         else:
             self.weight = self.model.model
-        
+
     def on_epoch_end(self, status):
         # Checkpointer only performed during training
         mode = status['mode']
@@ -425,7 +425,7 @@ class TensorBoardWriter(Callback):
         if dist.get_world_size() < 2 or dist.get_rank() == 0:
             if mode == 'train':
                 if self._train_loss_count > 0:
-                    step = status['epoch_id']
+                    step = status.get('epoch_id', 0)
                     for k, v in self._train_loss_sum.items():
                         self.tb_writer.add_scalar('train/{}'.format(k),
                                                   v / self._train_loss_count,
@@ -433,7 +433,7 @@ class TensorBoardWriter(Callback):
                     self._train_loss_sum = {}
                     self._train_loss_count = 0
             elif mode == 'eval':
-                step = status['epoch_id']
+                step = status.get('epoch_id', 0)
                 for metric in self.model._metrics:
                     res = metric.get_results()
                     if 'bbox' in res:

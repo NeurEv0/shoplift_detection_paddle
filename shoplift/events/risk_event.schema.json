@@ -53,7 +53,9 @@
         "clothing_concealment",
         "special_container_concealment",
         "bulk_pickup_to_bag",
-        "near_body_suspicious"
+        "near_body_suspicious",
+        "private_container_concealment",
+        "package_opening"
       ]
     },
     "risk_score": {
@@ -124,7 +126,8 @@
             "hand_item_contact",
             "item_follow_person",
             "item_enter_container",
-            "item_disappeared_after_entry"
+            "item_disappeared_after_entry",
+            "pptsm_open"
           ]
         },
         "frame_id": {

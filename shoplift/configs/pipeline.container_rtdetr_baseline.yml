@@ -1,5 +1,7 @@
 camera_id: demo-camera-001
 
+rules_config: ./shoplift/configs/rules.example.yml
+
 input:
   type: video
   path: ./datasets/test_videos/Shoplifting010_x264_merged.mp4

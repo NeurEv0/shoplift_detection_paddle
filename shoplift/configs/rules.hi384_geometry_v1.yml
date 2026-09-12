@@ -1,0 +1,140 @@
+# P1 规则/参数配置文件 —— 几何 v1(Stage B 验证专用,与 rules.example.yml 的区别只有 association 段)
+# 几何 v1 = 包口投放支持:
+#   1. private_container_mouth_margin_px:私有容器(包类)entry 判定前把框顶向上扩张该像素,
+#      使"手在包口上方直接放商品"(不进入包框)的动作也能命中 item_enter_container;
+#   2. 同帧同 item 命中多个容器时私有优先(防外层购物车/篮子截胡,见 association.py ContainerEntryDetector.update)。
+# 其余参数与 rules.example.yml(v1)完全一致;若调参回归 v1,把管线 yml 的 rules_config 指回 rules.example.yml 即可。
+
+association:
+  # 手-商品接触需要连续帧数(处理帧)
+  min_contact_frames: 3
+  # 商品进入容器需要连续帧数(处理帧)
+  min_entry_frames: 3
+  # 进入容器后商品消失多少帧(处理帧)判定"消失"
+  disappeared_after_entry_frames: 10
+  # 接触距离硬阈值(px);与接触尺寸比阈值取较大者
+  max_contact_distance_px: 32.0
+  # 接触尺寸比阈值:max(手/商品尺寸) * ratio
+  contact_distance_ratio: 0.75
+  # 接触 IoU 下限(与距离条件 OR)
+  min_contact_iou: 0.01
+  # 手/商品运动方向余弦相似度下限(接触加分项)
+  min_motion_cosine: 0.35
+  # 商品中心到人中心的最大跟随距离(px)
+  max_follow_distance_px: 160.0
+  # 商品归属人(ownership)的得分下限
+  follow_score_threshold: 0.45
+  # 两个候选人的归属得分差小于该值视为歧义,不关联
+  ownership_conflict_margin: 0.12
+  # 商品/容器短时跟踪缺失帧数上限(处理帧)
+  max_missing_frames: 5
+  # 连续计数允许的最大帧间隔(处理帧)
+  max_frame_gap: 1
+  # 商品中心在容器内或重叠比例达到该值即视为"进入"
+  min_entry_overlap_ratio: 0.25
+  # 几何 v1:私有容器框顶向上扩张的像素(仅对 private 生效;0 = 关闭)
+  # 120→80(v4 误报回合):margin120 时 person-95(手悬停偏高偏外,dy -43~-70/dx +40~+50)entry 连续帧=3 勉强过线;
+  #   margin80 其连续帧=2 < min_entry_frames → 滤掉。真事件 person-472(手低居中 dy -25~-49/dx +2~+25)
+  #   在 margin80 仍有 8 个连续 entry 帧(富余 5)。person-69 手压得比 472 更低(dy 到 -17),margin 滤不掉,
+  #   需"容器框稳定/包口朝上"门槛(见 association 私有 entry 的容器框稳定性校验)。
+  private_container_mouth_margin_px: 80
+  # 手/商品检测置信度低于该值打 low_confidence 标签
+  low_confidence_score: 0.35
+  # 正常容器类别白名单(放入即豁免)
+  normal_container_categories: [basket, cart, checkout_bag]
+
+risk_scoring:
+  # 事件类型基础权重
+  action_type_weights:
+    clothing_concealment: 0.34
+    bag_concealment: 0.32
+    special_container_concealment: 0.34
+    bulk_pickup_to_bag: 0.38
+    near_body_suspicious: 0.18
+    normal_container_placement: 0.05
+    private_container_concealment: 0.38
+    package_opening: 0.34
+  # 容器类别权重(与 action 权重相加)
+  container_type_weights:
+    private: 0.16
+    clothing: 0.18
+    special: 0.18
+    normal: -0.20
+    unknown: 0.04
+  # 证据时间跨度分量权重
+  continuous_evidence_weight: 0.16
+  # 证据关系类型多样性分量权重
+  relation_diversity_weight: 0.08
+  # 证据平均得分分量权重(代理"模型置信度")
+  model_confidence_weight: 0.20
+  # 区域风险分量权重(metadata.area_risk_weight 等)
+  area_risk_weight: 0.12
+  # 正常购物降级扣分(容器为 normal 时)
+  normal_shopping_downgrade: 0.35
+  # 低可见度/低置信度得分上限
+  low_visibility_score_cap: 0.55
+  low_confidence_score_cap: 0.55
+  # 证据平均分低于该值视为低置信度
+  low_confidence_threshold: 0.35
+  # 单帧接触事件的得分上限
+  single_frame_contact_score_cap: 0.44
+  # 批量拿取判定:同一容器在窗口内累计的商品数
+  bulk_item_count_threshold: 3
+  # 证据时间跨度达到该帧数视为"充分"(连续分量饱和)
+  high_risk_min_evidence_frames: 8
+  # 风险档位阈值
+  medium_threshold: 0.45
+  high_threshold: 0.75
+
+rules:
+  # 风险档位阈值(规则校验/归一化用,与 risk_scoring 保持一致)
+  medium_threshold: 0.45
+  high_threshold: 0.75
+  # high 至少需要多少个 reason tag
+  high_risk_min_reason_tags: 2
+  # 低可见度事件的风险档上限(low/medium/high)
+  low_visibility_risk_cap: medium
+  # 正常容器事件的风险档上限
+  normal_container_risk_cap: medium
+  # 单帧接触事件的风险档上限
+  single_frame_contact_risk_cap: low
+  # 各类归一化的得分上限
+  low_visibility_score_cap: 0.55
+  low_confidence_score_cap: 0.55
+  single_frame_contact_score_cap: 0.44
+  normal_container_score_cap: 0.44
+
+event_types:
+  # 事件类型清单(文档用途;引擎逻辑见 shoplift/events)
+  supported:
+    - clothing_concealment
+    - bag_concealment
+    - special_container_concealment
+    - bulk_pickup_to_bag
+    - near_body_suspicious
+    - private_container_concealment
+    - package_opening
+
+# 两段式"私有容器进店内篮"规则(2026-09-10 v1.3 定稿, 见 docs/stage_b §8.6)
+# 场景: 私包(backpack 等)放进店内篮(source=basket)后被篮壁遮挡(检出消失) → 武装;
+#       之后**包主人**(放入前手近袋者)累计伸手入篮 >= owner_dwell_frames 帧 → 事件。
+# 容器仅 source=basket(店内篮); cart(购物车)与 plastic_bag(顾客自有袋)排除
+# (d03 购物车场景全映射 category=basket 但 source 保留 cart → 天然排除)。
+nested_concealment:
+  mouth_margin_px: 20         # 包底边越过篮口线该像素才算"进入"(防搁篮口误判)
+  min_entry_frames: 3          # entry 连续帧(与 association 一致)
+  hide_confirm_frames: 2       # entry 后包检出消失几帧即武装(包消失即可, 2 帧消抖)
+  blip_tolerance_frames: 40    # 武装后包闪现 <= 该帧数不解除; > 视为取出/暴露 → 解除
+  owner_dwell_frames: 115      # 主人累计在篮手停留 >= 4.6s(115帧=25fps) → 触发(用户定稿 2026-09-10)
+                               #   (cc015 person-71 f834=33.36s 达标; 上限 117 帧留 2 帧缓冲;
+                               #    左缘 FP 峰值 ~59 帧 < 115; d03 排除 cart/plastic_bag 后 0)
+  idle_expire_ms: 12000        # 武装后无 owner 手活动该时长自动解除
+  allowed_public_sources: [basket]
+  owner_near_distance_px: 80   # 手中心距包中心该距离内视为"携带/持有"
+  event_type: private_container_concealment
+  base_score: 0.38
+  entry_confirm_score: 0.15
+  hide_confirm_score: 0.15
+  per_episode_score: 0.10
+  medium_threshold: 0.45
+  high_threshold: 0.75

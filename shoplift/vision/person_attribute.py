@@ -22,6 +22,18 @@ HAND_VISIBILITY_LABELS = ("clear", "partial_occluded", "not_judgable")
 BODY_ORIENTATION_LABELS = ("front", "side", "back", "unknown")
 OCCLUSION_LEVEL_LABELS = ("none", "light", "heavy")
 
+# 多分类头(softmax 向量)的原始概率,诊断时用于查看完整分布而非仅 top-1
+_HEAD_KEYS = frozenset(
+    {
+        "left_hand_state",
+        "left_hand_visibility",
+        "right_hand_state",
+        "right_hand_visibility",
+        "body_orientation",
+        "occlusion_level",
+    }
+)
+
 
 @dataclass(frozen=True)
 class PersonAttributeConfig:
@@ -94,15 +106,14 @@ class PersonAttributePostProcessor:
                 "raw": {
                     key: value
                     for key, value in raw.items()
-                    if key
-                    not in {
-                        "left_hand_state",
-                        "left_hand_visibility",
-                        "right_hand_state",
-                        "right_hand_visibility",
-                        "body_orientation",
-                        "occlusion_level",
-                    }
+                    if key not in _HEAD_KEYS
+                },
+                "head_probs": {
+                    key: [float(entry) for entry in value]
+                    if isinstance(value, (list, tuple)) and value and all(isinstance(entry, (int, float)) for entry in value)
+                    else None
+                    for key, value in raw.items()
+                    if key in _HEAD_KEYS
                 },
             },
         )

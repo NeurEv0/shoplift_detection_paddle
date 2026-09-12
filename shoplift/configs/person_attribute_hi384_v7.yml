@@ -1,0 +1,56 @@
+# Stage B v7:人员属性模型重训 —— 数据 = person_attribute_v4_cc015/splits(v6 基础)+ 手机负样本
+# v7 = v6 + 8 帧 D03 person-316 持手机样本(f11555-11562,left_hand_state=holding_object 手机,
+#   行经用户复核后并入 master full.csv 并追加进 train.csv;图片复制进 splits/images/train)。
+# 背景:D03 v5_m80_classw101 run 中 person-316 持手机被误判 holding_product(0.52-0.67),
+#   引发误报 concealment HIGH 0.895@462400-462840ms —— 手机=私人物品,应判 holding_object。
+# 其余与 v6 完全一致:384x512、class_weights [1.0,1.0,3.0,0.7]、60ep、lr 5e-4、seed 2026、
+#   pphgnetv2 S、6 头标签集;train.csv 由 v6 的 2152 行 + 8 手机行 = 2160,val/test 不变 259/259。
+# 输出 outputs/wqh/person_attribute/hi384_v7(新目录,不覆盖 v1-v6);
+# 导出到 models/shoplift/person_attribute/inference_hi384_v7(新目录)。
+# 运行(项目根目录):
+#   python -m shoplift.models.person_attribute.train_hi --config shoplift/configs/person_attribute_hi384_v7.yml
+# 评估:
+#   python -m shoplift.models.person_attribute.evaluate_hi \
+#     --config shoplift/configs/person_attribute_hi384_v7.yml \
+#     --checkpoint outputs/wqh/person_attribute/hi384_v7/best.pdparams --split val
+# 导出:
+#   python -m shoplift.models.person_attribute.export \
+#     --config shoplift/configs/person_attribute_hi384_v7.yml \
+#     --weights outputs/wqh/person_attribute/hi384_v7/best_val_loss.pdparams \
+#     --output-dir models/shoplift/person_attribute/inference_hi384_v7 --format concat
+
+output_dir: /home/e-ai2/ZHITAI_2tb/shoplift_detection_paddle/outputs/wqh/person_attribute/hi384_v7
+device: gpu:0
+seed: 2026
+
+backbone:
+  name: pphgnetv2
+  arch: S
+  paddledetection_root: ./src/PaddleDetection-release-2.9
+  pretrained: ./models/pretrained/person_attribute/pphgnetv2_s_pretrained.pdparams
+  freeze_backbone_epochs: 5
+
+data:
+  image_root: ./datasets/person_attribute_v4_cc015/splits/images
+  train_annotation: ./datasets/person_attribute_v4_cc015/splits/train.csv
+  val_annotation: ./datasets/person_attribute_v4_cc015/splits/val.csv
+  test_annotation: ./datasets/person_attribute_v4_cc015/splits/test.csv
+  image_width: 384
+  image_height: 512
+  batch_size: 32
+  num_workers: 4
+
+optimizer:
+  learning_rate: 0.0005
+  weight_decay: 0.0001
+  epochs: 60
+  warmup_epochs: 5
+
+loss:
+  class_weights:
+    left_hand_state: [1.0, 1.0, 3.0, 0.7]
+    right_hand_state: [1.0, 1.0, 3.0, 0.7]
+
+export:
+  output_dir: ./models/shoplift/person_attribute/inference_hi384_v7
+  output_format: concat

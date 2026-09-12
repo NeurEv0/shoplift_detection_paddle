@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 from shoplift.core.types import RelationEvidence, RiskLevel
-from shoplift.events.state_machine import ActionStateSnapshot
+
+if TYPE_CHECKING:
+    from shoplift.events.state_machine import ActionStateSnapshot
 
 
 def _clamp(score: float) -> float:
@@ -58,12 +60,64 @@ def _metadata_value(source: Mapping[str, Any], *keys: str) -> Any:
 
 
 def _container_kind_from_snapshot(snapshot: ActionStateSnapshot) -> str:
-    tags = set(snapshot.reason_tags)
-    metadata_sources: list[Mapping[str, Any]] = [snapshot.metadata]
-    metadata_sources.extend(evidence.metadata for evidence in snapshot.evidence)
+    """Resolve the event's container kind from ALL evidence as the item's
+    *final destination* (M1), not from whichever container appears first in
+    the evidence list.
 
-    for metadata in metadata_sources:
-        kind = str(_metadata_value(metadata, "container_kind", "container_type") or "").strip().lower()
+    - Every container-touching evidence contributes an (entry frame, kind):
+      ``item_enter_container`` uses its own frame_id; the disappear record
+      ``item_disappeared_after_entry`` uses metadata.entry_frame_id (the moment
+      the item entered that container).
+    - If the item entered a private/special/clothing container and NO
+      normal-container entry happened *after* that entry, the kind is that
+      latest private/special/clothing kind (the item stayed in the bag).
+    - If a normal-container entry happened after the private one, the item did
+      NOT stay in the private container (it was later seen entering a
+      cart/basket) -> treat the interaction as normal shopping.
+    - Without any private/special/clothing entry the legacy first-match and
+      tag fallback are preserved (pure basket/cart events unchanged).
+    """
+    tags = set(snapshot.reason_tags)
+    sources: list[Mapping[str, Any]] = [snapshot.metadata]
+    sources.extend(evidence.metadata for evidence in snapshot.evidence)
+
+    entries: list[tuple[int, str]] = []
+    for evidence in snapshot.evidence:
+        metadata = evidence.metadata or {}
+        kind = str(
+            _metadata_value(metadata, "container_kind", "container_type") or ""
+        ).strip().lower()
+        if kind == "bag":
+            kind = "private"
+        elif kind not in {"private", "special", "clothing", "normal"}:
+            kind = ""
+        if not kind and metadata.get("is_normal_container") is True:
+            kind = "normal"
+        if not kind:
+            continue
+        frame = evidence.frame_id
+        if evidence.relation_type == "item_disappeared_after_entry":
+            entry = _metadata_value(metadata, "entry_frame_id")
+            if isinstance(entry, (int, float)) and not isinstance(entry, bool):
+                frame = int(entry)
+        entries.append((frame, kind))
+
+    private_kinds = ("private", "special", "clothing")
+    private_entries = [(f, k) for f, k in entries if k in private_kinds]
+    if private_entries:
+        latest_private_frame, latest_private_kind = max(
+            private_entries, key=lambda item: item[0])
+        normal_latest = max(
+            (f for f, k in entries if k == "normal"), default=-1)
+        if normal_latest > latest_private_frame:
+            return "normal"
+        return latest_private_kind
+
+    # Legacy first-match on metadata order, then tag fallback (unchanged).
+    for metadata in sources:
+        kind = str(
+            _metadata_value(metadata, "container_kind", "container_type") or ""
+        ).strip().lower()
         if kind in {"private", "bag", "special", "clothing", "normal"}:
             if kind == "bag":
                 return "private"

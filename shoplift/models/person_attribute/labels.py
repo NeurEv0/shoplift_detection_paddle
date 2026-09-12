@@ -34,7 +34,7 @@ HEAD_SPECS = (
     HeadSpec("right_hand_state", HAND_STATE_LABELS, 2.0),
     HeadSpec("right_hand_visibility", HAND_VISIBILITY_LABELS, 1.5),
     HeadSpec("body_orientation", BODY_ORIENTATION_LABELS, 1.0),
-    HeadSpec("occlusion_level", OCCLUSION_LEVEL_LABELS, 1.0),
+    HeadSpec("occlusion_level", OCCLUSION_LEVEL_LABELS, 0.5),
 )
 
 HEAD_SPECS_BY_NAME = {spec.name: spec for spec in HEAD_SPECS}
@@ -54,4 +54,3 @@ __all__ = [
     "HeadSpec",
     "total_output_dim",
 ]
-

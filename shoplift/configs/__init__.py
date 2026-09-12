@@ -1,0 +1,1 @@
+"""Shoplift configuration helpers."""

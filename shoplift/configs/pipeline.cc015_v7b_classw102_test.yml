@@ -1,0 +1,103 @@
+# Stage B cc015 验证(v7 回合,2026-09-05):属性模型 = hi384_v7(best_val_loss,epoch9;
+#   v7 = v6 + 8 帧 D03 person-316 手机负样本(持手机=holding_object));
+#   容器模型 = classw102(backpack 权重 3.0),margin80 规则同 v6 run。
+# 对比 cc015_v6_classw102 看:103 白袋误报是否仍为 0、71 挎包/无事件状态、
+#   v7 手机负样本是否影响 cc015 正常持商品判定(无 316 式手机误报新增)。
+# 输出独立目录 container_pa_test/cc015_v7b_classw102/,不覆盖旧 run。
+# 运行:SHOPLIFT_USER=wqh python -m shoplift.cli.video_infer_visualize \
+#   --config shoplift/configs/pipeline.cc015_v7b_classw102_test.yml \
+#   --input datasets/test/test_videos/yulong_store/cc015bb3e050a8bc67ebbb2e6fd9951d.mp4
+
+camera_id: cc015-yulong-store
+
+rules_config: ./shoplift/configs/rules.hi384_geometry_v1.yml
+
+input:
+  type: video
+  path: ./datasets/test/test_videos/yulong_store/cc015bb3e050a8bc67ebbb2e6fd9951d.mp4
+
+runtime:
+  device: gpu:0
+  frame_stride: 1
+  max_frames: null
+  save_debug_visualization: true
+  save_debug_frames: true
+
+backend:
+  type: paddledet_pphuman
+  paddledetection_root: ./src/PaddleDetection-release-2.9
+  pphuman_config: ./src/PaddleDetection-release-2.9/deploy/pipeline/config/infer_cfg_pphuman.yml
+  device: gpu
+  run_mode: paddle
+  mot:
+    enabled: true
+    model_dir: ./models/paddledetection/person_mot
+    tracker_config: ./src/PaddleDetection-release-2.9/deploy/pipeline/config/tracker_config.yml
+    threshold: 0.5
+    batch_size: 1
+    skip_frame_num: -1
+  keypoint:
+    enabled: true
+    model_dir: ./models/paddledetection/person_keypoint
+    threshold: 0.2
+    batch_size: 8
+    derive_hand_regions: true
+  person_attribute:
+    enabled: true
+    model_dir: ./models/shoplift/person_attribute/inference_hi384_v7_best
+    threshold: 0.5
+    batch_size: 4
+    image_width: 384
+    image_height: 512
+    min_holding_product_score: 0.5
+  item_container:
+    enabled: true
+    model_dir: ./models/shoplift/item_container/rtdetr_r50vd_6x_container_det_classw102
+    threshold: 0.2
+    batch_size: 1
+    class_id_to_category:
+      0: bag
+      1: backpack
+      2: handbag
+      3: suitcase
+      4: basket
+      5: cart
+      6: plastic_bag
+      7: stroller
+      8: helmet
+
+modules:
+  person_gate:
+    enabled: true
+    min_score: 0.45
+    skip_when_empty: true
+  pose_recognition:
+    enabled: true
+    min_keypoint_score: 0.2
+  pose_hand:
+    enabled: true
+    min_keypoint_score: 0.2
+  person_attribute:
+    enabled: true
+    min_holding_product_score: 0.5
+  proxy_item:
+    enabled: true
+  item_container:
+    enabled: true
+    min_score: 0.2
+    classes:
+      - bag
+      - backpack
+      - handbag
+      - suitcase
+      - basket
+      - cart
+      - plastic_bag
+      - stroller
+      - helmet
+
+outputs:
+  frame_jsonl: container_pa_test/cc015_v7b_classw102/frame_results.jsonl
+  event_json: container_pa_test/cc015_v7b_classw102/events.json
+  debug_visualization_dir: container_pa_test/cc015_v7b_classw102/debug_frames
+  debug_visualization_video: container_pa_test/cc015_v7b_classw102/debug_visualization.mp4

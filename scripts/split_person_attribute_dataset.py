@@ -60,6 +60,8 @@ class SplitSummary:
     copied_image_count: int
     status_counts: dict[str, int]
     dry_run: bool
+    test_annotation: Path | None = None
+    test_count: int = 0
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -67,11 +69,13 @@ class SplitSummary:
             "output_dir": str(self.output_dir),
             "train_annotation": str(self.train_annotation),
             "val_annotation": str(self.val_annotation),
+            "test_annotation": str(self.test_annotation) if self.test_annotation else None,
             "source_row_count": self.source_row_count,
             "selected_row_count": self.selected_row_count,
             "skipped_missing_image_count": self.skipped_missing_image_count,
             "train_count": self.train_count,
             "val_count": self.val_count,
+            "test_count": self.test_count,
             "copied_image_count": self.copied_image_count,
             "status_counts": self.status_counts,
             "dry_run": self.dry_run,
@@ -85,25 +89,29 @@ def split_labeled_dataset(
     annotation: Path = DEFAULT_ANNOTATION,
     image_root: Path | None = None,
     statuses: Sequence[str] = DEFAULT_STATUS,
-    val_ratio: float = 0.2,
+    val_ratio: float = 0.1,
     val_count: int | None = None,
+    test_ratio: float = 0.1,
     seed: int = 2026,
     train_split: str = "train",
     val_split: str = "val",
+    test_split: str = "test",
     overwrite: bool = False,
     dry_run: bool = False,
     missing_image_policy: str = "error",
 ) -> SplitSummary:
-    """Create train/val split CSVs and image folders from completed labels."""
+    """Create train/val/test split CSVs and image folders from completed labels."""
 
     if not 0.0 <= val_ratio <= 1.0:
         raise ValueError("--val-ratio must be between 0 and 1")
     if val_count is not None and val_count < 0:
         raise ValueError("--val-count must be non-negative")
+    if not 0.0 <= test_ratio <= 1.0:
+        raise ValueError("--test-ratio must be between 0 and 1")
     if missing_image_policy not in {"error", "skip"}:
         raise ValueError("missing_image_policy must be 'error' or 'skip'")
-    if train_split == val_split:
-        raise ValueError("train and val split names must be different")
+    if len({train_split, val_split, test_split}) != 3:
+        raise ValueError("train/val/test split names must be different")
 
     annotation_path = _resolve_annotation_path(source_dataset, annotation)
     source_image_root = _resolve_image_root(source_dataset, image_root)
@@ -133,12 +141,24 @@ def split_labeled_dataset(
         val_ratio=val_ratio,
         val_count=val_count,
     )
-    val_indices = _choose_val_indices(len(entries), val_size, seed)
+    test_size = _resolve_test_count(
+        len(entries),
+        test_ratio=test_ratio,
+        val_size=val_size,
+    )
+    val_indices, test_indices = _choose_val_test_indices(
+        len(entries), val_size, test_size, seed
+    )
     train_entries = [
-        entry for index, entry in enumerate(entries) if index not in val_indices
+        entry
+        for index, entry in enumerate(entries)
+        if index not in val_indices and index not in test_indices
     ]
     val_entries = [
         entry for index, entry in enumerate(entries) if index in val_indices
+    ]
+    test_entries = [
+        entry for index, entry in enumerate(entries) if index in test_indices
     ]
 
     output_fieldnames = _ordered_fieldnames(fieldnames)
@@ -158,25 +178,37 @@ def split_labeled_dataset(
         overwrite=overwrite,
         dry_run=dry_run,
     )
+    test_rows, test_copied = _materialize_split(
+        test_entries,
+        split_name=test_split,
+        output_dir=output_dir,
+        fieldnames=output_fieldnames,
+        overwrite=overwrite,
+        dry_run=dry_run,
+    )
 
     train_annotation = output_dir / f"{train_split}.csv"
     val_annotation = output_dir / f"{val_split}.csv"
+    test_annotation = output_dir / f"{test_split}.csv"
     if not dry_run:
         output_dir.mkdir(parents=True, exist_ok=True)
         _write_csv(train_annotation, train_rows, output_fieldnames, overwrite=overwrite)
         _write_csv(val_annotation, val_rows, output_fieldnames, overwrite=overwrite)
+        _write_csv(test_annotation, test_rows, output_fieldnames, overwrite=overwrite)
         _write_summary(
             output_dir / "split_summary.json",
             source_annotation=annotation_path,
             output_dir=output_dir,
             train_annotation=train_annotation,
             val_annotation=val_annotation,
+            test_annotation=test_annotation,
             source_row_count=len(rows),
             selected_row_count=len(entries),
             skipped_missing_image_count=skipped_missing,
             train_count=len(train_entries),
             val_count=len(val_entries),
-            copied_image_count=train_copied + val_copied,
+            test_count=len(test_entries),
+            copied_image_count=train_copied + val_copied + test_copied,
             status_counts=status_counts,
         )
 
@@ -185,12 +217,14 @@ def split_labeled_dataset(
         output_dir=output_dir,
         train_annotation=train_annotation,
         val_annotation=val_annotation,
+        test_annotation=test_annotation,
+        test_count=len(test_entries),
         source_row_count=len(rows),
         selected_row_count=len(entries),
         skipped_missing_image_count=skipped_missing,
         train_count=len(train_entries),
         val_count=len(val_entries),
-        copied_image_count=train_copied + val_copied,
+        copied_image_count=train_copied + val_copied + test_copied,
         status_counts=status_counts,
         dry_run=dry_run,
     )
@@ -334,10 +368,31 @@ def _resolve_val_count(
     return min(max(0, count), sample_count - 1)
 
 
-def _choose_val_indices(sample_count: int, val_count: int, seed: int) -> set[int]:
+def _resolve_test_count(
+    sample_count: int,
+    *,
+    test_ratio: float,
+    val_size: int,
+) -> int:
+    if sample_count <= 1:
+        return 0
+    count = int(round(sample_count * test_ratio))
+    if test_ratio > 0:
+        count = max(1, count)
+    return min(max(0, count), sample_count - 1 - val_size)
+
+
+def _choose_val_test_indices(
+    sample_count: int,
+    val_count: int,
+    test_count: int,
+    seed: int,
+) -> tuple[set[int], set[int]]:
     indices = list(range(sample_count))
     random.Random(seed).shuffle(indices)
-    return set(indices[:val_count])
+    val_indices = set(indices[:val_count])
+    test_indices = set(indices[val_count : val_count + test_count])
+    return val_indices, test_indices
 
 
 def _ordered_fieldnames(fieldnames: Sequence[str]) -> list[str]:
@@ -481,7 +536,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Rows to include by label_status. Can be repeated or comma-separated. Use 'all' to include every row.",
     )
-    parser.add_argument("--val-ratio", type=float, default=0.2)
+    parser.add_argument("--val-ratio", type=float, default=0.1)
+    parser.add_argument(
+        "--test-ratio",
+        type=float,
+        default=0.1,
+        help="Fraction of labeled rows reserved for the test split.",
+    )
     parser.add_argument(
         "--val-count",
         type=int,
@@ -491,6 +552,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--train-split", default="train")
     parser.add_argument("--val-split", default="val")
+    parser.add_argument("--test-split", default="test")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
@@ -511,9 +573,11 @@ def main(argv: list[str] | None = None) -> int:
         statuses=args.status or DEFAULT_STATUS,
         val_ratio=args.val_ratio,
         val_count=args.val_count,
+        test_ratio=args.test_ratio,
         seed=args.seed,
         train_split=args.train_split,
         val_split=args.val_split,
+        test_split=args.test_split,
         overwrite=args.overwrite,
         dry_run=args.dry_run,
         missing_image_policy="skip" if args.skip_missing_images else "error",
